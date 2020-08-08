@@ -19,6 +19,7 @@ string NextToken(const string &regex, string::const_iterator &begin,
                 {'>', '<'}
         };
 
+        int bracket_num = 1;
         switch (*begin) {
             case '|':
             case '.':
@@ -70,7 +71,6 @@ string NextToken(const string &regex, string::const_iterator &begin,
                  */
             case '(':
                 cur_begin = begin;
-                int bracket_num = 1;
                 while (bracket_num != 0 && ++begin != end) {
                     switch (*begin) {
                         case '(':
@@ -87,6 +87,8 @@ string NextToken(const string &regex, string::const_iterator &begin,
                 }
                 // lack of ')'
                 return "";
+            default:
+                return string(1,*begin++);
         }
     }
     // All characters in 'regex' have been scanned.
