@@ -43,6 +43,10 @@ LexType GetType(const string &lex);
                                   stack<shared_ptr<AstNode>> &rpn_stack,
                                   const string &lex);
 
+[[nodiscard]] bool PushAssertion(stack<shared_ptr<AstNode>> &op_stack,
+                                 stack<shared_ptr<AstNode>> &rpn_stack,
+                                 const string &lex);
+
 vector<int> FindNumber(const string &s);
 
 [[nodiscard]] shared_ptr<AstNode> AST::CreateAst(const string &regex) {
@@ -54,9 +58,12 @@ vector<int> FindNumber(const string &s);
     stack<shared_ptr<AstNode>> op_stack;
     stack<shared_ptr<AstNode>> rpn_stack;
 
-    // record whether the last lex is '|'
-    bool or_flag = true;
-    shared_ptr<AstNode> son_ast;
+    /**
+     * 'or_flag' records whether the last lex is '|'.
+     * 'assert_direction_flag' records 'AssertionNode''s direction to
+     * determine where we should insert '&' explicitly.
+     */
+    bool or_flag = true, assert_direction_flag = true;
     while (!(lex = NextToken(regex, begin, end)).empty()) {
         switch (GetType(lex)) {
             case LexType::kAstNode:
@@ -74,14 +81,16 @@ vector<int> FindNumber(const string &s);
                  * We need to explicitly add '&' before a character when the
                  * last lex isn't '|'.
                  */
-                if (!or_flag) {
-                    if (!PushAnd(op_stack, rpn_stack)) {
-                        return nullptr;
-                    }
-                    rpn_stack.push(make_shared<CharNode>(lex));
-                } else {
-                    rpn_stack.push(make_shared<CharNode>(lex));
-                }
+                 if (!or_flag){
+                     if (!(!op_stack.empty()&&typeid(*op_stack.top().get()) ==
+                     typeid
+                             (AssertionNode)&&!assert_direction_flag)) {
+                         if (!PushAnd(op_stack,rpn_stack)){
+                             return nullptr;
+                         }
+                     }
+                 }
+                rpn_stack.push(make_shared<CharNode>(lex));
                 or_flag = false;
                 break;
             case LexType::kRepetitionNode:
@@ -90,19 +99,37 @@ vector<int> FindNumber(const string &s);
                 }
                 break;
             case LexType::kNestedNode:
-                if (!or_flag && !PushAnd(op_stack, rpn_stack)) {
-                    return nullptr;
+                shared_ptr<NestedNode> nested_node = NestedNode::MakeNestedNode
+                        (lex);
+                if (typeid(*nested_node) == typeid(AssertionNode)) {
+                    if (!or_flag && !(assert_direction_flag =
+                                              dynamic_pointer_cast<AssertionNode>(
+                                                      nested_node)->GetDirection())) {
+                        if (!PushAnd(op_stack, rpn_stack)) {
+                            return nullptr;
+                        }
+                    }
+                    if (!PushAssertion(op_stack, rpn_stack, lex)) {
+                        return nullptr;
+                    }
+                    // build AST for assertion
+                    op_stack.top()->SetRightSon(CreateAst(
+                            dynamic_pointer_cast<NestedNode>(
+                                    op_stack.top())->GetRegex()));
+                } else {
+                    if (typeid(*op_stack.top().get()) == typeid(AssertionNode)
+                        && assert_direction_flag) {
+                        if (!PushAnd(op_stack, rpn_stack)) {
+                            return nullptr;
+                        }
+                        rpn_stack.push(nested_node);
+                    }
+                    // build AST for the nested regex
+                    rpn_stack.top()->SetLeftSon(CreateAst(
+                            dynamic_pointer_cast<NestedNode>(
+                                    rpn_stack.top())->GetRegex()));
                 }
                 or_flag = false;
-                rpn_stack.push(NestedNode::MakeNestedNode(lex));
-                // build AST for the nested regex
-                rpn_stack.top()->SetLeftSon(
-                        CreateAst(
-                                dynamic_pointer_cast<NestedNode>(
-                                        rpn_stack.top()
-                                )->GetRegex()
-                        )
-                );
                 break;
         }
     }
@@ -132,7 +159,8 @@ LexType GetType(const string &lex) {
 [[nodiscard]] bool PushAnd(stack<shared_ptr<AstNode>> &op_stack,
                            stack<shared_ptr<AstNode>> &rpn_stack) {
     while (!op_stack.empty() && op_stack.top()->GetLex() != "|") {
-        if (typeid(*op_stack.top().get()) == typeid(RepetitionNode)) {
+        if (typeid(*op_stack.top().get()) == typeid(RepetitionNode) ||
+            typeid(*op_stack.top().get()) == typeid(AssertionNode)) {
             if (rpn_stack.empty()) {
                 return false;
             }
@@ -159,7 +187,8 @@ LexType GetType(const string &lex) {
 [[nodiscard]] bool PushOr(stack<shared_ptr<AstNode>> &op_stack,
                           stack<shared_ptr<AstNode>> &rpn_stack) {
     while (!op_stack.empty()) {
-        if (typeid(*op_stack.top().get()) == typeid(RepetitionNode)) {
+        if (typeid(*op_stack.top().get()) == typeid(RepetitionNode) ||
+            typeid(*op_stack.top().get()) == typeid(AssertionNode)) {
             if (rpn_stack.empty()) {
                 return false;
             }
@@ -186,8 +215,9 @@ LexType GetType(const string &lex) {
 [[nodiscard]] bool PushRepetition(stack<shared_ptr<AstNode>> &op_stack,
                                   stack<shared_ptr<AstNode>> &rpn_stack,
                                   const string &lex) {
-    while (!op_stack.empty() &&
-           typeid(*op_stack.top().get()) == typeid(RepetitionNode)) {
+    while (!op_stack.empty() && (
+            typeid(*op_stack.top().get()) == typeid(RepetitionNode) ||
+            typeid(*op_stack.top().get()) == typeid(AssertionNode))) {
         if (rpn_stack.empty()) {
             return false;
         }
@@ -197,6 +227,23 @@ LexType GetType(const string &lex) {
         op_stack.pop();
     }
     op_stack.push(make_shared<RepetitionNode>(lex));
+    return true;
+}
+
+[[nodiscard]] bool PushAssertion(stack<shared_ptr<AstNode>> &op_stack,
+                                 stack<shared_ptr<AstNode>> &rpn_stack,
+                                 const string &lex) {
+    while (!op_stack.empty() &&
+           typeid(*op_stack.top().get()) == typeid(AssertionNode)) {
+        if (rpn_stack.empty()) {
+            return false;
+        }
+        op_stack.top()->SetLeftSon(rpn_stack.top());
+        rpn_stack.pop();
+        rpn_stack.push(op_stack.top());
+        op_stack.pop();
+    }
+    op_stack.push(make_shared<AssertionNode>(lex));
     return true;
 }
 
@@ -348,3 +395,7 @@ vector<int> FindNumber(const string &s) {
     }
     return numbers;
 }
+
+//NFA::State &AstNode::CreateNfa() {
+//    return <#initializer#>;
+//}
