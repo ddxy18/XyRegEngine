@@ -5,22 +5,23 @@
 #ifndef XYREGENGINE_LEX_H
 #define XYREGENGINE_LEX_H
 
-#include <string>
 #include <iterator>
+#include <string>
 
-/**
- * It finds one token a time and sets 'begin' to the head of next token.
- * Notice that '(...)' '{...}' '<...>' '[...]' are seen as a token.
- *
- * @param regex
- * @param begin Always point to the begin of the next token. If no valid
- * token remains, it points to 'iterator.end()'.
- * @param end It isn't modified during execution.
- * @return std::string A valid token. If finding invalid token or reaching
- * to the end of the 'regex', it returns "".
- */
-std::string
-NextToken(const std::string &regex, std::string::const_iterator &begin,
-          std::string::const_iterator &end);
+namespace XyRegEngine {
+    using StrConstIt = std::string::const_iterator;
+
+    /**
+    * It finds one token a time and sets 'begin' to the head of the next token.
+    * Notice that '(...)' '{...}' '<...>' '[...]' are seen as a token.
+    *
+    * @param begin Always point to the begin of the next token. If no valid
+    * token remains, it points to 'iterator.cend()'.
+    * @param end Always point to the end of the given regex.
+    * @return A valid token. If it finds an invalid token or reaching to the end
+     * of the regex, it returns "".
+    */
+    std::string NextToken(StrConstIt &begin, StrConstIt &end);
+}
 
 #endif //XYREGENGINE_LEX_H
