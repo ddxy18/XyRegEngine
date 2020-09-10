@@ -16,7 +16,10 @@
 namespace XyRegEngine {
     class AstNode;
 
+    class AssertionNfa;
+
     using AstNodePtr = std::unique_ptr<AstNode>;
+    using StrConstIt = std::string::const_iterator;
 
     enum class Encoding {
         kAscii, kUtf8
@@ -41,7 +44,7 @@ namespace XyRegEngine {
     class Nfa {
         friend class NfaFactory;
 
-        using StrConstIt = std::string::const_iterator;
+        friend class AssertionNfa;
 
     public:
         Nfa() = default;
@@ -78,11 +81,11 @@ namespace XyRegEngine {
         std::string NextMatch(StrConstIt &begin, StrConstIt end);
 
     private:
+        enum class StateType {
+            kAssertion, kGroupHead, kGroupTail, kCommon
+        };
+
         static const int kEmptyEdge = 0;
-        static const int kLineBeginEdge = 1;  // ^
-        static const int kLineEndEdge = 2;  // $
-        static const int kWordBoundaryEdge = 3;  // \b
-        static const int kNotWordBoundaryEdge = 4;  // \B
 
         explicit Nfa(std::vector<unsigned int> char_ranges) :
                 char_ranges_(std::move(char_ranges)) {}
@@ -131,23 +134,9 @@ namespace XyRegEngine {
         std::pair<std::set<int>, std::set<int>> NextState(int cur_state);
 
         /**
-         * Handle an assertion part in the NFA.
-         *
-         * @param head_state an assertion head state
-         * @param begin
-         * @param end
-         * @param type true -- positive lookahead
-         *             false -- negative lookahead
-         * @return If assertion succeeds, return all reachable states from the
-         * tail state. Otherwise pair.first and pair.second should be empty.
-         */
-        std::pair<std::set<int>, std::set<int>> CheckAssertion(
-                int head_state, StrConstIt begin, StrConstIt end, bool type);
-
-        /**
-         * Handle any assertion head states existed in func_states. It
+         * Handle any assertion states existed in func_states. It
          * automatically handles continuous assertions until no assertion
-         * head states are reachable.
+         * states are reachable.
          *
          * @param func_states
          * @param begin
@@ -156,26 +145,19 @@ namespace XyRegEngine {
          * states after completing all assertions.
          */
         std::pair<std::set<int>, std::set<int>> CheckAssertion(
-                std::set<int> &func_states, StrConstIt begin, StrConstIt end);
+                std::vector<int> func_states, StrConstIt str_begin,
+                StrConstIt begin, StrConstIt end);
 
         bool IsFuncState(int state);
 
-        /**
-         * Determine function head state's type.
-         *
-         * @param state
-         * @return 0 -- positive lookahead and special assertions
-         *         1 -- negative lookahead
-         *         2 -- group
-         *         -1 -- common state and function tail state
-         */
-        int GetStateType(int state);
+        StateType GetStateType(int state);
 
         /**
          * Get the corresponding tail state of head_state
          *
          * @param head_state
-         * @return
+         * @return If head_state is not a head state stored in group_states_,
+         * return -1.
          */
         int GetTailState(int head_state);
 
@@ -249,15 +231,37 @@ namespace XyRegEngine {
         std::map<int, std::vector<std::set<int>>> exchange_map_;
 
         /**
+         * We compress an assertion to an assertion state in the NFA and it is
+         * connected to other states through empty edges. So we need a map to
+         * connect the assertion state to the corresponding assertion NFA.
+         */
+        std::map<int, AssertionNfa> assertion_states_;
+
+        /**
          * pair.first -- head state
          * pair.second -- corresponding tail state
          */
-        std::set<std::pair<int, int>> assertion_states_;
-        std::set<std::pair<int, int>> not_assertion_states_;
         std::set<std::pair<int, int>> group_states_;
 
         int begin_state_{-1};
         int accept_state_{-1};
+    };
+
+    class AssertionNfa {
+    public:
+        explicit AssertionNfa(std::string assertion);
+
+        bool IsSuccess(StrConstIt str_begin, StrConstIt begin, StrConstIt end);
+
+    private:
+        enum class AssertionType {
+            kLineBegin, kLineEnd, kWordBoundary, kNotWordBoundary,
+            kPositiveLookahead, kNegativeLookahead
+        };
+
+        AssertionType type_;
+
+        Nfa nfa_;
     };
 
     /**
@@ -278,8 +282,6 @@ namespace XyRegEngine {
                                      std::vector<unsigned int> char_ranges);
 
         static Nfa MakeGroupNfa(std::string group, Nfa left_nfa);
-
-        static Nfa MakeAssertionNfa(std::string assertion, Nfa left_nfa);
 
     private:
         static std::pair<int, int> ParseQuantifier(

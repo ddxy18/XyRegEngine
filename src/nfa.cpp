@@ -8,6 +8,7 @@
 #include <memory>
 #include <sstream>
 #include <stack>
+#include <utility>
 #include <vector>
 
 #include "lex.h"
@@ -24,13 +25,15 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
 
     // vector.element -- reachable states after handling '*begin'
     vector<set<int>> state_vec;
-    auto tmp = begin;
+    auto str_begin = begin;
 
     // Use the begin state and states that can be accessed through empty
     // edges and function edges as an initial driver.
     auto pair = NextState(begin_state_);
     // deal with assertion function states
-    pair.first.merge(CheckAssertion(pair.second, begin, end).first);
+    pair.first.merge(
+            CheckAssertion(vector(pair.second.begin(), pair.second.end()),
+                           str_begin, begin, end).first);
     // TODO(dxy): deal with group states in pair.second
     state_vec.push_back(pair.first);
 
@@ -39,12 +42,16 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
         set<int> cur_states;
         for (auto last_state:state_vec[state_vec.size() - 1]) {
             pair = NextState(last_state, begin, end);
-            pair.first.merge(CheckAssertion(pair.second, begin, end).first);
+            pair.first.merge(CheckAssertion(
+                    vector(pair.second.begin(), pair.second.end()),
+                    str_begin, begin, end).first);
             // TODO(dxy): deal with group states in pair.second
             cur_states.merge(pair.first);
         }
         state_vec.push_back(cur_states);
-        begin++;
+        if (begin <= end) {
+            begin++;
+        }
     }
     // remove the last empty vector
     state_vec.pop_back();
@@ -55,7 +62,7 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
     while (reverse_it != state_vec.rend()) {
         for (auto cur_state:*reverse_it) {
             if (cur_state == accept_state_) {
-                return string(tmp, begin);
+                return string(str_begin, begin);
             }
         }
         reverse_it++;
@@ -72,7 +79,7 @@ pair<set<int>, set<int>> Nfa::NextState(
     // states reached through assertion edges and group edges
     set<int> func_states;
 
-    if (begin != end) {
+    if (begin < end) {
         // add states that can be reached through '*cur_it' edges
         for (auto state:exchange_map_[cur_state][GetCharLocation(*begin)]) {
             if (IsFuncState(state)) {
@@ -92,6 +99,8 @@ pair<set<int>, set<int>> Nfa::NextState(
                 func_states.insert(state);
             }
         }
+    } else {
+        func_states.merge(NextState(cur_state).second);
     }
 
     return pair(std::move(states), std::move(func_states));
@@ -103,8 +112,8 @@ pair<set<int>, set<int>> Nfa::NextState(int cur_state) {
     set<int> func_states;
 
     // add states that can be reached through empty edges and function edges
-    int i = -1;
     states.push_back(cur_state);
+    int i = -1;
     while (++i != states.size()) {
         for (auto state:exchange_map_[states[i]][kEmptyEdge]) {
             if (IsFuncState(state)) {
@@ -116,154 +125,82 @@ pair<set<int>, set<int>> Nfa::NextState(int cur_state) {
         }
     }
 
+    if (IsFuncState(cur_state)) {
+        func_states.insert(cur_state);
+        states.erase(states.cbegin());
+    }
+
     return pair(set(states.cbegin(), states.cend()), std::move(func_states));
 }
 
 pair<set<int>, set<int>> Nfa::CheckAssertion(
-        set<int> &func_states, StrConstIt begin, StrConstIt end) {
+        vector<int> func_states, StrConstIt str_begin,
+        StrConstIt begin, StrConstIt end) {
     set<int> common_states;
 
-    for (auto state:func_states) {
-        int type = GetStateType(state);
-        pair<set<int>, set<int>> before_check_pair;
-        pair<set<int>, set<int>> after_check_pair;
+    int i = -1;
+    while (++i != func_states.size()) {
+        StateType type = GetStateType(func_states[i]);
         switch (type) {
-            case 0:  // assertion
-                before_check_pair = CheckAssertion(state, begin, end, true);
-                common_states.merge(before_check_pair.first);
-                after_check_pair = CheckAssertion(
-                        before_check_pair.second, begin, end);
-                common_states.merge(after_check_pair.first);
-                func_states.erase(state);
-                func_states.merge(after_check_pair.second);
-                break;
-            case 1:  // not assertion
-                before_check_pair = CheckAssertion(state, begin, end, false);
-                common_states.merge(before_check_pair.first);
-                after_check_pair = CheckAssertion(
-                        before_check_pair.second, begin, end);
-                common_states.merge(after_check_pair.first);
-                func_states.erase(state);
-                func_states.merge(after_check_pair.second);
+            case StateType::kAssertion:
+                if (assertion_states_.find(func_states[i])->second.IsSuccess(
+                        str_begin, begin, end)) {
+                    auto pair = NextState(func_states[i]);
+                    // erase current assertion
+                    pair.second.erase(func_states[i]);
+                    common_states.merge(pair.first);
+                    func_states.insert(func_states.cend(), pair.second.begin(),
+                                       pair.second.end());
+                }
+                func_states.erase(func_states.cbegin() + i);
+                i--;
                 break;
             default:
                 break;
         }
     }
 
-    return {common_states, func_states};
+    return {common_states, set(func_states.begin(), func_states.end())};
 }
 
-pair<set<int>, set<int>> Nfa::CheckAssertion(
-        int head_state, StrConstIt begin, StrConstIt end, bool type) {
-    // TODO(dxy): deal with ^ $ \b \B
-    auto tail_state = GetTailState(head_state);
+Nfa::StateType Nfa::GetStateType(int state) {
+    if (assertion_states_.contains(state)) {
+        return StateType::kAssertion;
+    }
 
-    // initial driver
-    auto pair = NextState(head_state);
-    // detect whether end function edge is reached
-    if (type) {
-        if (!pair.second.empty()) {
-            return NextState(
-                    *exchange_map_[tail_state][kEmptyEdge].cbegin());
+    for (auto &pair:group_states_) {
+        if (pair.first == state) {
+            return StateType::kGroupHead;
         }
-    } else {
-        if (!pair.second.empty()) {
-            return {set<int>(), set<int>()};
+        if (pair.second == state) {
+            return StateType::kGroupTail;
         }
     }
 
-    // find all reachable states from current states
-    vector<set<int>> states;
-    states.emplace_back(pair.first.cbegin(), pair.first.cend());
-    while (!states[states.size() - 1].empty()) {
-        set<int> cur_states;
-        for (auto last_state:states[states.size() - 1]) {
-            pair = NextState(last_state, begin, end);
-
-            // detect whether end function edge is reached
-            if (type) {
-                if (!pair.second.empty()) {
-                    return NextState(
-                            *exchange_map_[tail_state][kEmptyEdge].cbegin());
-                }
-            } else {
-                if (!pair.second.empty()) {
-                    return {set<int>(), set<int>()};
-                }
-            }
-
-            // store states can be reached through '*begin'
-            for (auto next_state:pair.first) {
-                cur_states.insert(next_state);
-            }
-        }
-        states.push_back(cur_states);
-        begin++;
-    }
-
-    if (type) {
-        return {set<int>(), set<int>()};
-    } else {
-        return NextState(
-                *exchange_map_[tail_state][kEmptyEdge].cbegin());
-    }
-}
-
-int Nfa::GetStateType(int state) {
-    auto FindFuncState = [state](std::set<std::pair<int, int>> &func_states) {
-        return std::any_of(func_states.begin(), func_states.end(),
-                           [state](std::pair<int, int> pair) {
-                               if (state == pair.first) {
-                                   return true;
-                               }
-                               return false;
-                           });
-    };
-
-    if (FindFuncState(assertion_states_)) {
-        return 0;
-    }
-    if (FindFuncState(not_assertion_states_)) {
-        return 1;
-    }
-    if (FindFuncState(group_states_)) {
-        return 2;
-    }
-    return -1;
+    return StateType::kCommon;
 }
 
 int Nfa::GetTailState(int head_state) {
-    auto FindTailState =
-            [head_state](std::set<std::pair<int, int>> &func_states) {
-                for (auto &pair:func_states) {
-                    if (head_state == pair.first) {
-                        return pair.second;
-                    }
-                }
-                return 0;
-            };
+    for (auto &pair:group_states_) {
+        if (pair.first == head_state) {
+            return pair.second;
+        }
+    }
 
-    return FindTailState(assertion_states_) +
-           FindTailState(not_assertion_states_) +
-           FindTailState(group_states_);
+    return -1;
 }
 
 bool Nfa::IsFuncState(int state) {
-    auto FindFuncState = [state](std::set<std::pair<int, int>> &func_states) {
-        return std::any_of(func_states.begin(), func_states.end(),
-                           [state](std::pair<int, int> pair) {
-                               if (state == pair.first ||
-                                   state == pair.second) {
-                                   return true;
-                               }
-                               return false;
-                           });
-    };
-
-    return FindFuncState(assertion_states_) ||
-           FindFuncState(not_assertion_states_) ||
-           FindFuncState(group_states_);
+    if (assertion_states_.contains(state)) {
+        return true;
+    }
+    return any_of(group_states_.begin(), group_states_.end(),
+                  [state](auto pair) {
+                      if (pair.first == state || pair.second == state) {
+                          return true;
+                      }
+                      return false;
+                  });
 }
 
 vector<string> GetDelim(const string &regex);
@@ -325,7 +262,6 @@ Nfa &Nfa::operator+=(Nfa &nfa) {
         exchange_map_[pair.first] = std::move(pair.second);
     }
     assertion_states_.merge(nfa.assertion_states_);
-    not_assertion_states_.merge(nfa.not_assertion_states_);
     group_states_.merge(nfa.group_states_);
     return *this;
 }
@@ -370,10 +306,6 @@ void Nfa::CharRangesInit(const vector<string> &delim, Encoding encoding) {
 
     // initialize several special ranges
     AddCharRange(char_ranges, kEmptyEdge);
-    AddCharRange(char_ranges, kLineBeginEdge);
-    AddCharRange(char_ranges, kLineEndEdge);
-    AddCharRange(char_ranges, kWordBoundaryEdge);
-    AddCharRange(char_ranges, kNotWordBoundaryEdge);
     AddCharRange(char_ranges, max_encode);
 
     if (delim.empty()) {
@@ -449,6 +381,12 @@ Nfa::Nfa(const string &regex) {
 
     auto ast_head = ParseRegex(regex);
     *this = Nfa(ast_head, char_ranges_);
+
+    // add a new state as the accept state to prevent that accept state is a
+    // functional state
+    NewState();
+    exchange_map_[accept_state_][kEmptyEdge].insert(Nfa::i_);
+    accept_state_ = Nfa::i_;
 }
 
 bool PushAnd(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack);
@@ -685,12 +623,14 @@ Nfa::Nfa(AstNodePtr &ast_head, const vector<unsigned int> &char_ranges) {
                         ast_head->regex_,
                         Nfa(ast_head->left_son_, char_ranges));
                 break;
-            case RegexPart::kAssertion:
-                *this = NfaFactory::MakeAssertionNfa(
-                        ast_head->regex_,
-                        Nfa(ast_head->left_son_, char_ranges));
-                break;
             case RegexPart::kError:
+                break;
+            case RegexPart::kAssertion:
+                NewState();
+                begin_state_ = Nfa::i_;
+                accept_state_ = Nfa::i_;
+                assertion_states_.insert(
+                        {begin_state_, AssertionNfa{ast_head->regex_}});
                 break;
         }
     }
@@ -803,60 +743,6 @@ Nfa NfaFactory::MakeGroupNfa(string group, Nfa left_nfa) {
     return nfa;
 }
 
-Nfa NfaFactory::MakeAssertionNfa(std::string assertion, Nfa left_nfa) {
-    Nfa nfa{std::move(left_nfa.char_ranges_)};
-
-    if (assertion[0] != '(') {
-        // add ^ edge
-        nfa.NewState();
-        nfa.NewState();
-        if (assertion == "^") {
-            nfa.exchange_map_[Nfa::i_ - 1][Nfa::kLineBeginEdge].insert(
-                    Nfa::i_);
-        } else if (assertion == "$") {
-            nfa.exchange_map_[Nfa::i_ - 1][Nfa::kLineEndEdge].insert(
-                    Nfa::i_);
-        } else if (assertion == "\\b") {
-            nfa.exchange_map_[Nfa::i_ - 1][Nfa::kWordBoundaryEdge].insert(
-                    Nfa::i_);
-        } else if (assertion == "\\B") {
-            nfa.exchange_map_[Nfa::i_ - 1][Nfa::kNotWordBoundaryEdge].insert(
-                    Nfa::i_);
-        }
-
-        nfa.NewState();
-        nfa.begin_state_ = Nfa::i_;
-        nfa.NewState();
-        nfa.accept_state_ = Nfa::i_;
-        nfa.exchange_map_[nfa.begin_state_][Nfa::kEmptyEdge].insert(
-                Nfa::i_ - 3);
-        nfa.exchange_map_[Nfa::i_ - 2][Nfa::kEmptyEdge].insert(Nfa::i_);
-        nfa.assertion_states_.insert({Nfa::i_ - 3, Nfa::i_});
-    } else {  // lookahead
-        nfa += left_nfa;
-
-        nfa.NewState();
-        nfa.begin_state_ = Nfa::i_;
-        nfa.NewState();
-        nfa.accept_state_ = Nfa::i_;
-
-        nfa.exchange_map_[nfa.begin_state_][Nfa::kEmptyEdge].insert(
-                left_nfa.begin_state_);
-        nfa.exchange_map_[left_nfa.accept_state_][Nfa::kEmptyEdge].insert(
-                nfa.accept_state_);
-
-        if (assertion[2] == '=') {  // positive lookahead
-            nfa.assertion_states_.insert(
-                    {left_nfa.begin_state_, left_nfa.accept_state_});
-        } else {  // negative lookahead
-            nfa.not_assertion_states_.insert(
-                    {left_nfa.begin_state_, left_nfa.accept_state_});
-        }
-    }
-
-    return nfa;
-}
-
 Nfa NfaFactory::MakeQuantifierNfa(const string &quantifier, AstNodePtr &left,
                                   vector<unsigned int> char_ranges) {
     Nfa nfa{std::move(char_ranges)};
@@ -944,4 +830,62 @@ pair<int, int> NfaFactory::ParseQuantifier(const std::string &quantifier) {
     }
 
     return repeat_range;
+}
+
+AssertionNfa::AssertionNfa(std::string assertion) {
+    if (assertion[0] != '(') {
+        if (assertion == "^") {
+            type_ = AssertionType::kLineBegin;
+        } else if (assertion == "$") {
+            type_ = AssertionType::kLineEnd;
+        } else if (assertion == "\\b") {
+            type_ = AssertionType::kWordBoundary;
+        } else if (assertion == "\\B") {
+            type_ = AssertionType::kNotWordBoundary;
+        }
+    } else {  // lookahead
+        if (assertion[2] == '=') {
+            type_ = AssertionType::kPositiveLookahead;
+        } else {
+            type_ = AssertionType::kNegativeLookahead;
+        }
+        string regex{assertion.cbegin() + 3, assertion.cend() - 1};
+        nfa_ = Nfa(regex);
+    }
+}
+
+bool IsLineTerminator(StrConstIt it);
+
+bool AssertionNfa::IsSuccess(
+        StrConstIt str_begin, StrConstIt begin, StrConstIt end) {
+    switch (type_) {
+        case AssertionType::kLineBegin:
+            if (begin == str_begin || IsLineTerminator(begin - 1)) {
+                return true;
+            }
+            break;
+        case AssertionType::kLineEnd:
+            if (begin == end || IsLineTerminator(begin + 1)) {
+                return true;
+            }
+            break;
+        case AssertionType::kWordBoundary:
+            // TODO(dxy):
+            break;
+        case AssertionType::kNotWordBoundary:
+            // TODO(dxy):
+            break;
+        case AssertionType::kPositiveLookahead:
+            return !nfa_.NextMatch(begin, end).empty();
+        case AssertionType::kNegativeLookahead:
+            return nfa_.NextMatch(begin, end).empty();
+    }
+    return false;
+}
+
+bool IsLineTerminator(StrConstIt it) {
+    if (*it == '\n' || *it == '\r') {
+        return true;
+    }
+    return false;
 }

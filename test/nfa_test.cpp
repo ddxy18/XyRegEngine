@@ -100,3 +100,30 @@ TEST(Nfa, Assertion_NegativeLookahead) {
     EXPECT_EQ(nfa.NextMatch(begin, end), "abcab");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
+
+TEST(Nfa, ContinuousAssertion) {
+    Nfa nfa{"(?!abcd)(?=abc)[a-c]{2,5}"};
+    string s = "abcabcd";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "abcab");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, Assertion_LineBegin) {
+    Nfa nfa{"^a+"};
+    string s = "aaa";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, Assertion_LineEnd) {
+    Nfa nfa{"a+$"};
+    string s = "aaa";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
