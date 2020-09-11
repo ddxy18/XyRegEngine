@@ -127,3 +127,21 @@ TEST(Nfa, Assertion_LineEnd) {
     EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
+
+TEST(Nfa, Assertion_WordBoundary) {
+    Nfa nfa{"\\ba+\\b"};
+    string s = "aaa aaa";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, Assertion_NotWordBoundary) {
+    Nfa nfa{"aa\\Ba"};
+    string s = "aaa";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}

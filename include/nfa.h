@@ -110,9 +110,10 @@ namespace XyRegEngine {
 
         /**
          * Get all reachable states starting from cur_state through *begin.
-         * *begin should be matched firstly before matching any other edges.
-         * States that can be accessed through empty edges from currently
-         * matched states should also be marked reachable.
+         * *begin should be matched firstly before matching any other edges
+         * except the assertion states. States that can be accessed through
+         * empty edges from currently matched states should also be marked
+         * reachable.
          *
          * @param cur_state
          * @param begin
@@ -120,18 +121,19 @@ namespace XyRegEngine {
          * @return pair.first.element -- reachable common states
          *         pair.second.element -- reachable function states
          */
-        std::pair<std::set<int>, std::set<int>> NextState(
-                int cur_state, StrConstIt begin, StrConstIt end);
+        std::pair<std::map<int, StrConstIt>, std::map<int, StrConstIt>>
+        NextState(int cur_state, StrConstIt begin, StrConstIt end);
 
         /**
-         * All reachable states starting from cur_state through empty edges,
-         * cur_state is included in pair.first as well.
+         * All reachable states starting from cur_state through empty edges.
+         * Notice that cur_state is excluded.
          *
          * @param cur_state
          * @return pair.first.element -- reachable common states
          *         pair.second.element -- reachable function states
          */
-        std::pair<std::set<int>, std::set<int>> NextState(int cur_state);
+        std::pair<std::map<int, StrConstIt>, std::map<int, StrConstIt>>
+        NextState(int cur_state, StrConstIt begin);
 
         /**
          * Handle any assertion states existed in func_states. It
@@ -140,13 +142,13 @@ namespace XyRegEngine {
          *
          * @param func_states
          * @param begin
-         * @param end
+         * @param str_end
          * @return Contain group states in func_states and other reachable
          * states after completing all assertions.
          */
-        std::pair<std::set<int>, std::set<int>> CheckAssertion(
-                std::vector<int> func_states, StrConstIt str_begin,
-                StrConstIt begin, StrConstIt end);
+        std::pair<std::map<int, StrConstIt>, std::map<int, StrConstIt>>
+        CheckAssertion(std::map<int, StrConstIt> func_states,
+                       StrConstIt str_begin, StrConstIt str_end);
 
         bool IsFuncState(int state);
 
@@ -251,7 +253,9 @@ namespace XyRegEngine {
     public:
         explicit AssertionNfa(std::string assertion);
 
-        bool IsSuccess(StrConstIt str_begin, StrConstIt begin, StrConstIt end);
+        bool
+        IsSuccess(StrConstIt str_begin, StrConstIt str_end,
+                  StrConstIt begin);
 
     private:
         enum class AssertionType {
