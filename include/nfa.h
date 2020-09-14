@@ -18,8 +18,20 @@ namespace XyRegEngine {
 
     class AssertionNfa;
 
+    class GroupNfa;
+
     using AstNodePtr = std::unique_ptr<AstNode>;
     using StrConstIt = std::string::const_iterator;
+    // a sub-match [pair.first, pair.second)
+    using SubMatch = std::pair<StrConstIt, StrConstIt>;
+    // pair.first -- state
+    // pair.second -- current begin iterator
+    // map.second -- Sub-matches. Every vector<SubMatch> stores a possible
+    // sub-match order.
+    using ReachableStatesMap =
+    std::map<std::pair<int, StrConstIt>, std::vector<SubMatch>>;
+    using State =
+    std::pair<std::pair<int, StrConstIt>, std::vector<SubMatch>>;
 
     enum class Encoding {
         kAscii, kUtf8
@@ -80,9 +92,9 @@ namespace XyRegEngine {
          */
         std::string NextMatch(StrConstIt &begin, StrConstIt end);
 
-    private:
+    protected:
         enum class StateType {
-            kAssertion, kGroupHead, kGroupTail, kCommon
+            kAssertion, kGroup, kCommon
         };
 
         static const int kEmptyEdge = 0;
@@ -109,59 +121,31 @@ namespace XyRegEngine {
         Nfa &operator+=(Nfa &nfa);
 
         /**
-         * Get all reachable states starting from cur_state through *begin.
-         * *begin should be matched firstly before matching any other edges
-         * except the assertion states. States that can be accessed through
-         * empty edges from currently matched states should also be marked
-         * reachable.
+         * Get all reachable states starting from cur_state. When cur_state
+         * is a functional state, it will be handled first. For common
+         * states, we match *begin first. Then we deal with states that can
+         * be reached through empty edges.
          *
          * @param cur_state
-         * @param begin
-         * @param end
-         * @return pair.first.element -- reachable common states
-         *         pair.second.element -- reachable function states
+         * @param str_begin
+         * @param str_end
+         * @return reachable states after handling cur_state
          */
-        std::pair<std::map<int, StrConstIt>, std::map<int, StrConstIt>>
-        NextState(int cur_state, StrConstIt begin, StrConstIt end);
+        ReachableStatesMap
+        NextState(const State &cur_state, StrConstIt str_begin,
+                  StrConstIt str_end);
 
         /**
          * All reachable states starting from cur_state through empty edges.
-         * Notice that cur_state is excluded.
+         * Notice that cur_state is excluded and it does nothing to handle
+         * functional states.
          *
          * @param cur_state
-         * @return pair.first.element -- reachable common states
-         *         pair.second.element -- reachable function states
+         * @return
          */
-        std::pair<std::map<int, StrConstIt>, std::map<int, StrConstIt>>
-        NextState(int cur_state, StrConstIt begin);
-
-        /**
-         * Handle any assertion states existed in func_states. It
-         * automatically handles continuous assertions until no assertion
-         * states are reachable.
-         *
-         * @param func_states
-         * @param begin
-         * @param str_end
-         * @return Contain group states in func_states and other reachable
-         * states after completing all assertions.
-         */
-        std::pair<std::map<int, StrConstIt>, std::map<int, StrConstIt>>
-        CheckAssertion(std::map<int, StrConstIt> func_states,
-                       StrConstIt str_begin, StrConstIt str_end);
-
-        bool IsFuncState(int state);
+        ReachableStatesMap NextState(const State &cur_state);
 
         StateType GetStateType(int state);
-
-        /**
-         * Get the corresponding tail state of head_state
-         *
-         * @param head_state
-         * @return If head_state is not a head state stored in group_states_,
-         * return -1.
-         */
-        int GetTailState(int head_state);
 
         /**
          * Use 'delim' to split an encoding to several ranges. By default,
@@ -240,10 +224,9 @@ namespace XyRegEngine {
         std::map<int, AssertionNfa> assertion_states_;
 
         /**
-         * pair.first -- head state
-         * pair.second -- corresponding tail state
+         * We deal with a group like an assertion.
          */
-        std::set<std::pair<int, int>> group_states_;
+        std::map<int, GroupNfa> group_states_;
 
         int begin_state_{-1};
         int accept_state_{-1};
@@ -251,11 +234,18 @@ namespace XyRegEngine {
 
     class AssertionNfa {
     public:
+        AssertionNfa(const AssertionNfa &assertion_nfa) = default;
+
         explicit AssertionNfa(std::string assertion);
 
-        bool
-        IsSuccess(StrConstIt str_begin, StrConstIt str_end,
-                  StrConstIt begin);
+        /**
+         * @param str_begin location of ^ in regex in a match
+         * @param str_end location of $ in regex in a match
+         * @param begin where to start the assertion
+         * @return
+         */
+        bool IsSuccess(StrConstIt str_begin, StrConstIt str_end,
+                       StrConstIt begin);
 
     private:
         enum class AssertionType {
@@ -266,6 +256,22 @@ namespace XyRegEngine {
         AssertionType type_;
 
         Nfa nfa_;
+    };
+
+    class GroupNfa : public Nfa {
+    public:
+        GroupNfa(const GroupNfa &group_nfa) = default;
+
+        explicit GroupNfa(const std::string &regex) : Nfa(regex) {}
+
+        /**
+         * Get all possible sub-matches from the group.
+         *
+         * @param begin
+         * @param str_end
+         * @return possible end iterators after dealing with the group
+         */
+        std::set<StrConstIt> NextGroup(StrConstIt begin, StrConstIt str_end);
     };
 
     /**
@@ -284,8 +290,6 @@ namespace XyRegEngine {
         static Nfa MakeQuantifierNfa(const std::string &quantifier,
                                      AstNodePtr &left,
                                      std::vector<unsigned int> char_ranges);
-
-        static Nfa MakeGroupNfa(std::string group, Nfa left_nfa);
 
     private:
         static std::pair<int, int> ParseQuantifier(

@@ -23,31 +23,21 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
         return "";
     }
 
-    vector<map<int, StrConstIt>> state_vec;
-    map<int, StrConstIt> cur_states;
+    vector<ReachableStatesMap> state_vec;
+    ReachableStatesMap cur_states;
 
-    // Use states that can be accessed through empty edges as an initial driver.
-    auto pair = NextState(begin_state_, begin);
-    // add begin_state_
-    if (IsFuncState(begin_state_)) {
-        pair.second.insert({begin_state_, begin});
-    } else {
-        pair.first.insert({begin_state_, begin});
-    }
-    cur_states.merge(pair.first);
-    // deal with assertion states
-    cur_states.merge(CheckAssertion(pair.second, begin, end).first);
-    // TODO(dxy): deal with group states in pair.second
+    // Use states that can be accessed through empty edges from begin_state_
+    // and begin_state_ itself as an initial driver.
+    State begin_state = {{begin_state_, begin}, vector<SubMatch>()};
+    cur_states.merge(NextState(begin_state));
+    cur_states.insert(begin_state);
     state_vec.push_back(cur_states);
 
     // find all reachable states from current states
     while (!state_vec[state_vec.size() - 1].empty()) {
         cur_states.clear();
-        for (auto last_state:state_vec[state_vec.size() - 1]) {
-            pair = NextState(last_state.first, last_state.second, end);
-            pair.first.merge(CheckAssertion(pair.second, begin, end).first);
-            // TODO(dxy): deal with group states in pair.second
-            cur_states.merge(pair.first);
+        for (const auto &last_state:state_vec[state_vec.size() - 1]) {
+            cur_states.merge(NextState(last_state, begin, end));
         }
         state_vec.push_back(cur_states);
     }
@@ -56,11 +46,12 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
 
     auto it = state_vec.cbegin();
     auto str_begin = begin;
-    // find the last vector that contains the accept state
+    // find the longest match
     while (it != state_vec.cend()) {
-        for (auto cur_state:*it) {
-            if (cur_state.first == accept_state_ && cur_state.second > begin) {
-                begin = cur_state.second;
+        for (const auto &cur_state:*it) {
+            if (cur_state.first.first == accept_state_ &&
+                cur_state.first.second > begin) {
+                begin = cur_state.first.second;
             }
         }
         it++;
@@ -69,153 +60,94 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
     return string(str_begin, begin);
 }
 
-pair<map<int, StrConstIt>, map<int, StrConstIt>> Nfa::NextState(
-        int cur_state, StrConstIt begin, StrConstIt end) {
-    vector<int> char_states;  // states reached through *begin
-    map<int, StrConstIt> common_states;
-    // assertion states and group states
-    map<int, StrConstIt> func_states;
+ReachableStatesMap Nfa::NextState(const State &cur_state,
+                                  StrConstIt str_begin, StrConstIt str_end) {
+    ReachableStatesMap next_states;
+    auto begin = cur_state.first.second;
 
-    if (begin < end) {
-        // add states that can be reached through *cur_it
-        for (auto state:exchange_map_[cur_state][GetCharLocation(*begin)]) {
-            if (IsFuncState(state)) {
-                func_states[state] = begin + 1;
-            } else {
-                char_states.push_back(state);
+    switch (GetStateType(cur_state.first.first)) {
+        case StateType::kAssertion:
+            if (!assertion_states_.find(
+                    cur_state.first.first)->second.IsSuccess(
+                    str_begin, str_end, begin)) {
+                return next_states;
             }
-        }
-
-        // add states that can be reached through empty edges
-        for (auto char_state:char_states) {
-            auto pair = NextState(char_state, begin + 1);
-            common_states.merge(pair.first);
-            func_states.merge(pair.second);
-        }
-
-        // add reachable assertion states
-        auto assertion_states = NextState(cur_state, begin).second;
-        erase_if(assertion_states, [this](auto &state) {
-            return !assertion_states_.contains(state.first);
-        });
-        func_states.merge(assertion_states);
-    } else {
-        auto assertion_states = NextState(cur_state, end).second;
-        erase_if(assertion_states, [this](auto &state) {
-            return !assertion_states_.contains(state.first);
-        });
-        func_states.merge(assertion_states);
-    }
-
-    return pair(std::move(common_states), std::move(func_states));
-}
-
-pair<map<int, StrConstIt>, map<int, StrConstIt>> Nfa::NextState(
-        int cur_state, StrConstIt begin) {
-    vector<int> common_states_vec;
-    // states reached through assertion edges and group edges
-    map<int, StrConstIt> func_states;
-
-    // add states that can be reached through empty edges
-    common_states_vec.push_back(cur_state);
-    int i = -1;
-    while (++i != common_states_vec.size()) {
-        for (auto state:exchange_map_[common_states_vec[i]][kEmptyEdge]) {
-            if (IsFuncState(state)) {
-                func_states[state] = begin;
-            } else if (
-                    find(common_states_vec.cbegin(), common_states_vec.cend(),
-                         state) ==
-                    common_states_vec.cend()) {
-                common_states_vec.push_back(state);
+            next_states.insert(cur_state);
+            break;
+        case StateType::kGroup:
+            for (auto end_it:
+                    group_states_.find(cur_state.first.first)->second.NextGroup(
+                            begin, str_end)) {
+                auto sub_matches = cur_state.second;
+                sub_matches.emplace_back(begin, end_it);
+                next_states.insert(
+                        {{cur_state.first.first, end_it}, sub_matches});
             }
-        }
-    }
-    common_states_vec.erase(common_states_vec.cbegin());  // erase cur_state
-
-    map<int, StrConstIt> common_states;
-    for (auto state:common_states_vec) {
-        common_states[state] = begin;
-    }
-
-    return {std::move(common_states), std::move(func_states)};
-}
-
-pair<map<int, StrConstIt>, map<int, StrConstIt>> Nfa::CheckAssertion(
-        map<int, StrConstIt> func_states,
-        StrConstIt str_begin, StrConstIt str_end) {
-    map<int, StrConstIt> common_states;
-
-    vector<pair<int, StrConstIt>> func_states_vec;
-    transform(func_states.begin(), func_states.end(),
-              back_inserter(func_states_vec), [](auto &pair) { return pair; });
-    int i = -1;
-    while (++i != func_states_vec.size()) {
-        StateType type = GetStateType(func_states_vec[i].first);
-        switch (type) {
-            case StateType::kAssertion:
-                if (assertion_states_.find(func_states_vec[i].first)->second
-                        .IsSuccess(str_begin,
-                                   str_end, func_states_vec[i].second)) {
-                    auto pair = NextState(func_states_vec[i].first,
-                                          func_states_vec[i].second);
-                    common_states.merge(pair.first);
-                    func_states_vec.insert(func_states_vec.end(),
-                                           pair.second.begin(),
-                                           pair.second.end());
+            break;
+        case StateType::kCommon:
+            // add states that can be reached through *cur_it
+            if (begin < str_end) {
+                for (auto state:exchange_map_[cur_state.first.first][
+                        GetCharLocation(*begin)]) {
+                    next_states.insert(
+                            {{state, begin + 1}, cur_state.second});
                 }
-                func_states_vec.erase(func_states_vec.cbegin() + i);
-                i--;
-                break;
-            default:
-                break;
+            }
+            break;
+    }
+
+    ReachableStatesMap next_states_from_empty;
+    for (const auto &state:next_states) {
+        next_states_from_empty.merge(NextState(state));
+    }
+    next_states.erase(cur_state.first);
+    next_states.merge(next_states_from_empty);
+
+    return next_states;
+}
+
+ReachableStatesMap Nfa::NextState(const State &cur_state) {
+    vector<int> common_states;
+    set<int> func_states;
+
+    common_states.push_back(cur_state.first.first);
+    int i = -1;
+    while (++i != common_states.size()) {
+        for (auto state:exchange_map_[common_states[i]][kEmptyEdge]) {
+            if (GetStateType(state) == StateType::kCommon) {
+                if (find(common_states.cbegin(), common_states.cend(), state) ==
+                    common_states.cend()) {
+                    common_states.push_back(state);
+                }
+            } else {
+                func_states.insert(state);
+            }
         }
     }
-    func_states.clear();
-    transform(func_states_vec.begin(), func_states_vec.end(), inserter
-            (func_states, func_states.end()), [](auto &pair) { return pair; });
+    // erase cur_state
+    common_states.erase(common_states.cbegin());
 
-    return {std::move(common_states), std::move(func_states)};
+    ReachableStatesMap next_states_map;
+    for (auto state:common_states) {
+        next_states_map.insert(
+                {{state, cur_state.first.second}, cur_state.second});
+    }
+    for (auto state:func_states) {
+        next_states_map.insert(
+                {{state, cur_state.first.second}, cur_state.second});
+    }
+
+    return next_states_map;
 }
 
 Nfa::StateType Nfa::GetStateType(int state) {
     if (assertion_states_.contains(state)) {
         return StateType::kAssertion;
     }
-
-    for (auto &pair:group_states_) {
-        if (pair.first == state) {
-            return StateType::kGroupHead;
-        }
-        if (pair.second == state) {
-            return StateType::kGroupTail;
-        }
+    if (group_states_.contains(state)) {
+        return StateType::kGroup;
     }
-
     return StateType::kCommon;
-}
-
-int Nfa::GetTailState(int head_state) {
-    for (auto &pair:group_states_) {
-        if (pair.first == head_state) {
-            return pair.second;
-        }
-    }
-
-    return -1;
-}
-
-bool Nfa::IsFuncState(int state) {
-    if (assertion_states_.contains(state)) {
-        return true;
-    }
-    return any_of(group_states_.begin(), group_states_.end(),
-                  [state](auto pair) {
-                      if (pair.first == state || pair.second == state) {
-                          return true;
-                      }
-                      return false;
-                  });
 }
 
 vector<string> GetDelim(const string &regex);
@@ -389,7 +321,6 @@ int Nfa::GetCharLocation(int c) {
 
 Nfa::Nfa(const string &regex) {
     // initialize 'char_ranges_'
-
     auto delim = GetDelim(regex);
     // TODO(dxy): determine encoding according characters in 'regex'
     CharRangesInit(delim, Encoding::kAscii);
@@ -451,17 +382,14 @@ AstNodePtr Nfa::ParseRegex(const string &regex) {
                     }
                 }
 
-                // build AST for the nested regex
+                // build AST for the sub-pattern in the group
                 if (lex[1] == '?') {  // passive group
-                    son = ParseRegex(string(lex.cbegin() + 3, lex.cend() - 1));
+                    son = ParseRegex(string{lex.cbegin() + 3, lex.cend() - 1});
+                    rpn_stack.push(std::move(son));
                 } else {  // group
-                    son = ParseRegex(string(lex.cbegin() + 1, lex.cend() - 1));
-                }
-
-                if (son) {
-                    AstNodePtr group_node =
-                            make_unique<AstNode>(RegexPart::kGroup, "");
-                    group_node->SetLeftSon(std::move(son));
+                    AstNodePtr group_node = make_unique<AstNode>(
+                            RegexPart::kGroup, string{
+                                    lex.cbegin() + 1, lex.cend() - 1});
                     rpn_stack.push(std::move(group_node));
                 }
                 or_flag = false;
@@ -634,11 +562,11 @@ Nfa::Nfa(AstNodePtr &ast_head, const vector<unsigned int> &char_ranges) {
                         ast_head->regex_, ast_head->left_son_, char_ranges);
                 break;
             case RegexPart::kGroup:
-                *this = NfaFactory::MakeGroupNfa(
-                        ast_head->regex_,
-                        Nfa(ast_head->left_son_, char_ranges));
-                break;
-            case RegexPart::kError:
+                NewState();
+                begin_state_ = Nfa::i_;
+                accept_state_ = Nfa::i_;
+                group_states_.insert(
+                        {begin_state_, GroupNfa{ast_head->regex_}});
                 break;
             case RegexPart::kAssertion:
                 NewState();
@@ -646,6 +574,8 @@ Nfa::Nfa(AstNodePtr &ast_head, const vector<unsigned int> &char_ranges) {
                 accept_state_ = Nfa::i_;
                 assertion_states_.insert(
                         {begin_state_, AssertionNfa{ast_head->regex_}});
+                break;
+            case RegexPart::kError:
                 break;
         }
     }
@@ -729,31 +659,6 @@ Nfa NfaFactory::MakeAndNfa(Nfa left_nfa, Nfa right_nfa) {
     // state.
     nfa.exchange_map_[left_nfa.accept_state_][Nfa::kEmptyEdge].insert(
             right_nfa.begin_state_);
-
-    return nfa;
-}
-
-Nfa NfaFactory::MakeGroupNfa(string group, Nfa left_nfa) {
-    Nfa nfa{std::move(left_nfa.char_ranges_)};
-
-    nfa += left_nfa;
-
-    if (group[1] == '?') {  // passive group
-        nfa.begin_state_ = left_nfa.begin_state_;
-        nfa.accept_state_ = left_nfa.accept_state_;
-    } else {  // group
-        nfa.NewState();
-        nfa.begin_state_ = Nfa::i_;
-        nfa.NewState();
-        nfa.accept_state_ = Nfa::i_;
-
-        nfa.exchange_map_[nfa.begin_state_][Nfa::kEmptyEdge].insert(
-                left_nfa.begin_state_);
-        nfa.exchange_map_[left_nfa.accept_state_][Nfa::kEmptyEdge].insert(
-                nfa.accept_state_);
-        nfa.group_states_.insert(
-                {left_nfa.begin_state_, left_nfa.accept_state_});
-    }
 
     return nfa;
 }
@@ -929,4 +834,48 @@ bool IsLineTerminator(StrConstIt it) {
 
 bool IsWord(StrConstIt it) {
     return *it == '_' || isalnum(*it);
+}
+
+set<StrConstIt> GroupNfa::NextGroup(StrConstIt begin, StrConstIt str_end) {
+    set<StrConstIt> end_its;
+
+    // We don't use begin == str_end since an empty string may be captured.
+    if (begin > str_end) {
+        return end_its;
+    }
+
+    vector<ReachableStatesMap> state_vec;
+    ReachableStatesMap cur_states;
+
+    // Use states that can be accessed through empty edges from begin_state_
+    // and begin_state_ itself as an initial driver.
+    State begin_state = {{begin_state_, begin}, vector<SubMatch>()};
+    cur_states.merge(NextState(begin_state));
+    cur_states.insert(begin_state);
+    state_vec.push_back(cur_states);
+
+    // find all reachable states from current states
+    while (!state_vec[state_vec.size() - 1].empty()) {
+        cur_states.clear();
+        for (const auto &last_state:state_vec[state_vec.size() - 1]) {
+            cur_states.merge(NextState(last_state, begin, str_end));
+        }
+        state_vec.push_back(cur_states);
+    }
+    // remove the last empty vector
+    state_vec.pop_back();
+
+    auto it = state_vec.cbegin();
+    // find the longest match
+    while (it != state_vec.cend()) {
+        for (const auto &cur_state:*it) {
+            if (cur_state.first.first == accept_state_) {
+                end_its.insert(cur_state.first.second);
+            }
+        }
+        it++;
+    }
+
+
+    return end_its;
 }

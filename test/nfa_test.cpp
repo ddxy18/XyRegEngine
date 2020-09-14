@@ -75,38 +75,39 @@ TEST(Nfa, Quantifier_nOrMore) {
 }
 
 TEST(Nfa, Quantifier_mTon) {
-    Nfa nfa{"[a-c]{2,5}"};
-    string s = "abcabcd";
+    Nfa nfa{"[a-c]{2,4}"};
+    string s = "abcabd";
     auto begin = s.cbegin(), end = s.cend();
 
-    EXPECT_EQ(nfa.NextMatch(begin, end), "abcab");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "abca");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
 
 TEST(Nfa, Assertion_PositiveLookahead) {
-    Nfa nfa{"(?=abc)[a-c]{2,5}"};
-    string s = "abcabcd";
+    Nfa nfa{"(?=a)ab"};
+    string s = "ab";
     auto begin = s.cbegin(), end = s.cend();
 
-    EXPECT_EQ(nfa.NextMatch(begin, end), "abcab");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "ab");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
 
 TEST(Nfa, Assertion_NegativeLookahead) {
-    Nfa nfa{"(?!abcd)[a-c]{2,5}"};
-    string s = "abcabcd";
+    Nfa nfa{"(?!abd)abc"};
+    string s = "abc";
     auto begin = s.cbegin(), end = s.cend();
 
-    EXPECT_EQ(nfa.NextMatch(begin, end), "abcab");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "abc");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
 
 TEST(Nfa, ContinuousAssertion) {
-    Nfa nfa{"(?!abcd)(?=abc)[a-c]{2,5}"};
-    string s = "abcabcd";
+    Nfa nfa{"(?!abd)(?=abc)abc"};
+    string s = "abcabc";
     auto begin = s.cbegin(), end = s.cend();
 
-    EXPECT_EQ(nfa.NextMatch(begin, end), "abcab");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "abc");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "abc");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
 
@@ -143,5 +144,32 @@ TEST(Nfa, Assertion_NotWordBoundary) {
     auto begin = s.cbegin(), end = s.cend();
 
     EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, Group) {
+    Nfa nfa{"(aa)ab"};
+    string s = "aaabc";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaab");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, PassiveGroup) {
+    Nfa nfa{"(?:aa)ab"};
+    string s = "aaabc";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaab");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, NestedGroup) {
+    Nfa nfa{"(^aa(ab))c"};
+    string s = "aaabc";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaabc");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
