@@ -11,6 +11,7 @@
 #include <set>
 #include <stack>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace XyRegEngine {
@@ -19,6 +20,8 @@ namespace XyRegEngine {
     class AssertionNfa;
 
     class GroupNfa;
+
+    class SpecialPatternNfa;
 
     using AstNodePtr = std::unique_ptr<AstNode>;
     using StrConstIt = std::string::const_iterator;
@@ -94,7 +97,7 @@ namespace XyRegEngine {
 
     protected:
         enum class StateType {
-            kAssertion, kGroup, kCommon
+            kAssertion, kGroup, kSpecialPattern, kCommon
         };
 
         static const int kEmptyEdge = 0;
@@ -223,10 +226,9 @@ namespace XyRegEngine {
          */
         std::map<int, AssertionNfa> assertion_states_;
 
-        /**
-         * We deal with a group like an assertion.
-         */
         std::map<int, GroupNfa> group_states_;
+
+        std::map<int, SpecialPatternNfa> special_pattern_states_;
 
         int begin_state_{-1};
         int accept_state_{-1};
@@ -272,6 +274,25 @@ namespace XyRegEngine {
          * @return possible end iterators after dealing with the group
          */
         std::set<StrConstIt> NextGroup(StrConstIt begin, StrConstIt str_end);
+    };
+
+    class SpecialPatternNfa {
+    public:
+        explicit SpecialPatternNfa(std::string characters) :
+                characters_(std::move(characters)) {}
+
+        /**
+         * Determine whether a substring can match characters_.
+         *
+         * @param begin
+         * @param str_end
+         * @return If a substring [begin, end_it) matches, return end_it.
+         * Otherwise return begin.
+         */
+        StrConstIt NextMatch(const State& state, StrConstIt str_end);
+
+    private:
+        std::string characters_;
     };
 
     /**

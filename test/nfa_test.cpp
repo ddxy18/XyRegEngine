@@ -173,3 +173,39 @@ TEST(Nfa, NestedGroup) {
     EXPECT_EQ(nfa.NextMatch(begin, end), "aaabc");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
+
+TEST(Nfa, BackReference) {
+    Nfa nfa{"(a*)bc\\1"};
+    string s = "aabcaaa";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aabcaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, SeveralBackReference) {
+    Nfa nfa{R"((a*)(b*)c\1\1\2)"};
+    string s = "aabcaaaab";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aabcaaaab");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, NotNewLine) {
+    Nfa nfa{"..."};
+    string s = "aaa";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "aaa");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}
+
+TEST(Nfa, EscapeCharacter) {
+    Nfa nfa{"\\(a+\\)"};
+    string s = "(a)";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "(a)");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}

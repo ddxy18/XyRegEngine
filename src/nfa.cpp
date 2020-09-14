@@ -30,7 +30,8 @@ RegexPart GetRegexType(const string &regex);
 vector<string> GetDelim(const string &regex);
 
 /**
- * Parse a [...] to a serious character ranges.
+ * Parse a [...] to a serious character ranges. Special pattern characters
+ * are ignored directly.
  *
  * @param range in a format like [...]
  * @return Every pair in the map represents a character range.
@@ -130,6 +131,15 @@ ReachableStatesMap Nfa::NextState(const State &cur_state,
                         {{cur_state.first.first, end_it}, sub_matches});
             }
             break;
+        case StateType::kSpecialPattern:
+            begin = special_pattern_states_.find(
+                    cur_state.first.first)->second.NextMatch(
+                    cur_state, str_end);
+            if (begin != cur_state.first.second) {
+                next_states.insert(
+                        {{cur_state.first.first, begin}, cur_state.second});
+            }
+            break;
         case StateType::kCommon:
             // add states that can be reached through *cur_it
             if (begin < str_end) {
@@ -146,7 +156,7 @@ ReachableStatesMap Nfa::NextState(const State &cur_state,
     for (const auto &state:next_states) {
         next_states_from_empty.merge(NextState(state));
     }
-    next_states.erase(cur_state.first);
+    next_states.erase({cur_state.first.first, begin});
     next_states.merge(next_states_from_empty);
 
     return next_states;
@@ -192,6 +202,9 @@ Nfa::StateType Nfa::GetStateType(int state) {
     }
     if (group_states_.contains(state)) {
         return StateType::kGroup;
+    }
+    if (special_pattern_states_.contains(state)) {
+        return StateType::kSpecialPattern;
     }
     return StateType::kCommon;
 }
@@ -245,6 +258,7 @@ Nfa &Nfa::operator+=(Nfa &nfa) {
     }
     assertion_states_.merge(nfa.assertion_states_);
     group_states_.merge(nfa.group_states_);
+    special_pattern_states_.merge(nfa.special_pattern_states_);
     return *this;
 }
 
@@ -262,24 +276,24 @@ void Nfa::CharRangesInit(const vector<string> &delim, Encoding encoding) {
             break;
     }
 
-    // initialize several special ranges
+    // initialize special ranges
     AddCharRange(char_ranges, kEmptyEdge);
     AddCharRange(char_ranges, max_encode);
 
     if (delim.empty()) {
-        // Initialize 'char_ranges_' by seeing every character as a range by
+        // Initialize char_ranges_ by seeing every character as a range by
         // default.
         for (int i = 1; i < max_encode; ++i) {
-            char_ranges.insert(i);
+            AddCharRange(char_ranges, i);
         }
     } else {
         for (auto &s:delim) {
             if (s.size() == 1) {  // single character
                 // see single character as a range
-                AddCharRange(char_ranges, s[0]);
-            } else if (s[0] == '\\') {  // escape character
-                // TODO(dxy):
-            } else {  // character range
+                if (s != ".") {
+                    AddCharRange(char_ranges, s[0]);
+                }
+            } else if (s[0] == '[') {  // character range
                 for (auto &pair:SplitRange(s)) {
                     AddCharRange(char_ranges, pair.first, pair.second + 1);
                 }
@@ -304,8 +318,8 @@ map<int, int> SplitRange(const string &range) {
     map<int, int> ranges;
 
     for (int i = 1; i < range.size() - 1; ++i) {
-        if (range[i] == '\\') {  // escape character
-            // TODO(dxy):
+        if (range[i] == '\\') {  // skip special patterns
+            i += 2;
         } else {
             if (i + 1 < range.size() - 1 && range[i + 1] == '-') {  // range
                 if (i + 2 < range.size() - 1) {
@@ -600,25 +614,39 @@ Nfa NfaFactory::MakeCharacterNfa(
 
     nfa.NewState();
     nfa.begin_state_ = Nfa::i_;
-    nfa.NewState();
-    nfa.accept_state_ = Nfa::i_;
 
     if (characters.size() == 1) {  // single character
-        nfa.exchange_map_[nfa.begin_state_][nfa.GetCharLocation(
-                characters[0])].insert(Nfa::i_);
+        if (characters == ".") {
+            nfa.accept_state_ = nfa.begin_state_;
+            nfa.special_pattern_states_.insert(
+                    {nfa.begin_state_, SpecialPatternNfa{characters}});
+        } else {
+            nfa.NewState();
+            nfa.accept_state_ = Nfa::i_;
+            nfa.exchange_map_[nfa.begin_state_][nfa.GetCharLocation(
+                    characters[0])].insert(nfa.accept_state_);
+        }
     } else if (characters[0] == '[') {  // [...]
+        // TODO(dxy): negated character class
+        nfa.NewState();
+        nfa.accept_state_ = Nfa::i_;
+
+        // TODO(dxy): special pattern in [...]
         auto ranges = SplitRange(characters);
         for (auto &pair:ranges) {
             auto begin = nfa.GetCharLocation(pair.first);
             auto end = nfa.GetCharLocation(pair.second);
 
             while (begin <= end) {
-                nfa.exchange_map_[nfa.begin_state_][begin].insert(Nfa::i_);
+                nfa.exchange_map_[nfa.begin_state_][begin].insert(
+                        nfa.accept_state_);
                 begin++;
             }
         }
-    } else {  // escape character
-        // TODO(dxy):
+    } else {  // special pattern characters
+        nfa.accept_state_ = nfa.begin_state_;
+        nfa.special_pattern_states_.insert(
+                {nfa.begin_state_, SpecialPatternNfa{characters}});
     }
 
     return nfa;
@@ -878,4 +906,79 @@ set<StrConstIt> GroupNfa::NextGroup(StrConstIt begin, StrConstIt str_end) {
 
 
     return end_its;
+}
+
+StrConstIt SpecialPatternNfa::NextMatch(
+        const State &state, StrConstIt str_end) {
+    auto begin = state.first.second;
+
+    if (begin < str_end) {
+        if (characters_ == ".") {  // not new line
+            if (*begin != '\n' && *begin != '\r') {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\d") {  // digit
+            if (isdigit(*begin)) {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\D") {  // not digit
+            if (!isdigit(*begin)) {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\s") {  // whitespace
+            if (isspace(*begin)) {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\S") {  // not whitespace
+            if (!isspace(*begin)) {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\w") {  // word
+            if (isalnum(*begin)) {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\W") {  // not word
+            if (!isalnum(*begin)) {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\t") {  // \t
+            if (*begin == '\t') {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\n") {  // \n
+            if (*begin == '\n') {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\v") {  // \v
+            if (*begin == '\v') {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\f") {  // \f
+            if (*begin == '\f') {
+                return begin + 1;
+            }
+        } else if (characters_ == "\\0") {  // \0
+            if (*begin == '\0') {
+                return begin + 1;
+            }
+        } else if (isdigit(characters_[1])) {  // back reference
+            int back_reference = stoi(
+                    string{characters_.cbegin() + 1, characters_.cend()});
+            int length = state.second[back_reference - 1].second -
+                         state.second[back_reference - 1].first;
+            for (int i = 0; i < length; ++i) {
+                if (*(begin + i) != *(state.second[back_reference - 1].first +
+                                      i)) {
+                    return begin;
+                }
+            }
+            return begin + length;
+        } else {  // \\^ \\$ \\\\ \\. \\* \\+ \\? \\( \\) \\[ \\] \\{ \\} \\|
+            if (*begin == characters_[1]) {
+                return begin + 1;
+            }
+        }
+    }
+
+    return begin;
 }
