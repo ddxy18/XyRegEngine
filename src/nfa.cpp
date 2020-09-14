@@ -18,6 +18,52 @@ using namespace std;
 
 int Nfa::i_ = 0;
 
+/**
+ * It determines which RegexPart should be chosen according to regex's a few
+ * characters from its head.
+ *
+ * @param regex
+ * @return
+ */
+RegexPart GetRegexType(const string &regex);
+
+vector<string> GetDelim(const string &regex);
+
+/**
+ * Parse a [...] to a serious character ranges.
+ *
+ * @param range in a format like [...]
+ * @return Every pair in the map represents a character range.
+ */
+map<int, int> SplitRange(const string &range);
+
+/**
+ * Add a character range [begin, end) to char_ranges.
+ *
+ * @param begin
+ * @param end
+ */
+void AddCharRange(
+        set<unsigned int> &char_ranges, unsigned int begin, unsigned int end);
+
+/**
+ * Add a char range [begin, begin + 1) to char_ranges.
+ *
+ * @param begin
+ */
+void AddCharRange(set<unsigned int> &char_ranges, unsigned int begin);
+
+bool PushAnd(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack);
+
+bool PushOr(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack);
+
+bool PushQuantifier(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack,
+                    const string &regex);
+
+bool IsLineTerminator(StrConstIt it);
+
+bool IsWord(StrConstIt it);
+
 string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
     if (begin == end) {
         return "";
@@ -150,17 +196,6 @@ Nfa::StateType Nfa::GetStateType(int state) {
     return StateType::kCommon;
 }
 
-vector<string> GetDelim(const string &regex);
-
-/**
- * It determines which RegexPart should be chosen according to regex's a few
- * characters from its head.
- *
- * @param regex
- * @return
- */
-RegexPart GetRegexType(const string &regex);
-
 vector<string> GetDelim(const string &regex) {
     auto begin = regex.cbegin(), end = regex.cend();
     vector<string> delim;
@@ -212,30 +247,6 @@ Nfa &Nfa::operator+=(Nfa &nfa) {
     group_states_.merge(nfa.group_states_);
     return *this;
 }
-
-/**
- * Parse a [...] to a serious character ranges.
- *
- * @param range in a format like [...]
- * @return Every pair in the map represents a character range.
- */
-map<int, int> SplitRange(const string &range);
-
-/**
- * Add a character range [begin, end) to char_ranges.
- *
- * @param begin
- * @param end
- */
-void AddCharRange(
-        set<unsigned int> &char_ranges, unsigned int begin, unsigned int end);
-
-/**
- * Add a char range [begin, begin + 1) to char_ranges.
- *
- * @param begin
- */
-void AddCharRange(set<unsigned int> &char_ranges, unsigned int begin);
 
 void Nfa::CharRangesInit(const vector<string> &delim, Encoding encoding) {
     set<unsigned int> char_ranges;
@@ -334,13 +345,6 @@ Nfa::Nfa(const string &regex) {
     exchange_map_[accept_state_][kEmptyEdge].insert(Nfa::i_);
     accept_state_ = Nfa::i_;
 }
-
-bool PushAnd(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack);
-
-bool PushOr(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack);
-
-bool PushQuantifier(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack,
-                    const string &regex);
 
 AstNodePtr Nfa::ParseRegex(const string &regex) {
     stack<AstNodePtr> op_stack;
@@ -773,10 +777,6 @@ AssertionNfa::AssertionNfa(std::string assertion) {
         nfa_ = Nfa(regex);
     }
 }
-
-bool IsLineTerminator(StrConstIt it);
-
-bool IsWord(StrConstIt it);
 
 bool AssertionNfa::IsSuccess(StrConstIt str_begin, StrConstIt str_end,
                              StrConstIt begin) {
