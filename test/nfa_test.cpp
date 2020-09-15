@@ -209,3 +209,13 @@ TEST(Nfa, EscapeCharacter) {
     EXPECT_EQ(nfa.NextMatch(begin, end), "(a)");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
+
+TEST(Nfa, SpecialPatternInRange) {
+    Nfa nfa{"[\\w]"};
+    string s = "a1";
+    auto begin = s.cbegin(), end = s.cend();
+
+    EXPECT_EQ(nfa.NextMatch(begin, end), "a");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "1");
+    EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
+}

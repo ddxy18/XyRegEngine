@@ -7,11 +7,9 @@
 
 #include <map>
 #include <memory>
-#include <ostream>
 #include <set>
 #include <stack>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace XyRegEngine {
@@ -22,6 +20,8 @@ namespace XyRegEngine {
     class GroupNfa;
 
     class SpecialPatternNfa;
+
+    class RangeNfa;
 
     using AstNodePtr = std::unique_ptr<AstNode>;
     using StrConstIt = std::string::const_iterator;
@@ -97,7 +97,7 @@ namespace XyRegEngine {
 
     protected:
         enum class StateType {
-            kAssertion, kGroup, kSpecialPattern, kCommon
+            kAssertion, kGroup, kSpecialPattern, kRange, kCommon
         };
 
         static const int kEmptyEdge = 0;
@@ -230,6 +230,8 @@ namespace XyRegEngine {
 
         std::map<int, SpecialPatternNfa> special_pattern_states_;
 
+        std::map<int, RangeNfa> range_states_;
+
         int begin_state_{-1};
         int accept_state_{-1};
     };
@@ -289,10 +291,27 @@ namespace XyRegEngine {
          * @return If a substring [begin, end_it) matches, return end_it.
          * Otherwise return begin.
          */
-        StrConstIt NextMatch(const State& state, StrConstIt str_end);
+        StrConstIt NextMatch(const State &state, StrConstIt str_end);
 
     private:
         std::string characters_;
+    };
+
+    class RangeNfa {
+    public:
+        explicit RangeNfa(const std::string &regex);
+
+        /**
+         * @param begin
+         * @param str_end
+         * @return If a substring [begin, end_it) matches, return end_it.
+         * Otherwise return begin.
+         */
+        StrConstIt NextMatch(const State &state, StrConstIt str_end);
+
+    private:
+        std::map<int, int> ranges_;
+        std::vector<SpecialPatternNfa> special_patterns_;
     };
 
     /**

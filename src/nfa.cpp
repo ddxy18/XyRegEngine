@@ -30,15 +30,6 @@ RegexPart GetRegexType(const string &regex);
 vector<string> GetDelim(const string &regex);
 
 /**
- * Parse a [...] to a serious character ranges. Special pattern characters
- * are ignored directly.
- *
- * @param range in a format like [...]
- * @return Every pair in the map represents a character range.
- */
-map<int, int> SplitRange(const string &range);
-
-/**
  * Add a character range [begin, end) to char_ranges.
  *
  * @param begin
@@ -64,6 +55,8 @@ bool PushQuantifier(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack,
 bool IsLineTerminator(StrConstIt it);
 
 bool IsWord(StrConstIt it);
+
+StrConstIt SkipEscapeCharacters(StrConstIt begin, StrConstIt end);
 
 string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
     if (begin == end) {
@@ -140,6 +133,15 @@ ReachableStatesMap Nfa::NextState(const State &cur_state,
                         {{cur_state.first.first, begin}, cur_state.second});
             }
             break;
+        case StateType::kRange:
+            begin = range_states_.find(
+                    cur_state.first.first)->second.NextMatch(
+                    cur_state, str_end);
+            if (begin != cur_state.first.second) {
+                next_states.insert(
+                        {{cur_state.first.first, begin}, cur_state.second});
+            }
+            break;
         case StateType::kCommon:
             // add states that can be reached through *cur_it
             if (begin < str_end) {
@@ -206,6 +208,9 @@ Nfa::StateType Nfa::GetStateType(int state) {
     if (special_pattern_states_.contains(state)) {
         return StateType::kSpecialPattern;
     }
+    if (range_states_.contains(state)) {
+        return StateType::kRange;
+    }
     return StateType::kCommon;
 }
 
@@ -259,6 +264,8 @@ Nfa &Nfa::operator+=(Nfa &nfa) {
     assertion_states_.merge(nfa.assertion_states_);
     group_states_.merge(nfa.group_states_);
     special_pattern_states_.merge(nfa.special_pattern_states_);
+    range_states_.merge(nfa.range_states_);
+
     return *this;
 }
 
@@ -288,14 +295,10 @@ void Nfa::CharRangesInit(const vector<string> &delim, Encoding encoding) {
         }
     } else {
         for (auto &s:delim) {
-            if (s.size() == 1) {  // single character
-                // see single character as a range
-                if (s != ".") {
+            if (s.size() == 1) {
+                if (s != ".") {  // single character
+                    // see single character as a range [s[0], s[0] + 1)
                     AddCharRange(char_ranges, s[0]);
-                }
-            } else if (s[0] == '[') {  // character range
-                for (auto &pair:SplitRange(s)) {
-                    AddCharRange(char_ranges, pair.first, pair.second + 1);
                 }
             }
         }
@@ -312,27 +315,6 @@ void AddCharRange(
 
 void AddCharRange(set<unsigned int> &char_ranges, unsigned int begin) {
     AddCharRange(char_ranges, begin, begin + 1);
-}
-
-map<int, int> SplitRange(const string &range) {
-    map<int, int> ranges;
-
-    for (int i = 1; i < range.size() - 1; ++i) {
-        if (range[i] == '\\') {  // skip special patterns
-            i += 2;
-        } else {
-            if (i + 1 < range.size() - 1 && range[i + 1] == '-') {  // range
-                if (i + 2 < range.size() - 1) {
-                    ranges.insert({range[i], range[i + 2]});
-                    i += 2;
-                }
-            } else {  // single character
-                ranges.insert({range[i], range[i]});
-            }
-        }
-    }
-
-    return ranges;
 }
 
 int Nfa::GetCharLocation(int c) {
@@ -615,34 +597,20 @@ Nfa NfaFactory::MakeCharacterNfa(
     nfa.NewState();
     nfa.begin_state_ = Nfa::i_;
 
-    if (characters.size() == 1) {  // single character
+    if (characters.size() == 1) {
         if (characters == ".") {
             nfa.accept_state_ = nfa.begin_state_;
             nfa.special_pattern_states_.insert(
                     {nfa.begin_state_, SpecialPatternNfa{characters}});
-        } else {
+        } else {  // single character
             nfa.NewState();
             nfa.accept_state_ = Nfa::i_;
             nfa.exchange_map_[nfa.begin_state_][nfa.GetCharLocation(
                     characters[0])].insert(nfa.accept_state_);
         }
     } else if (characters[0] == '[') {  // [...]
-        // TODO(dxy): negated character class
-        nfa.NewState();
-        nfa.accept_state_ = Nfa::i_;
-
-        // TODO(dxy): special pattern in [...]
-        auto ranges = SplitRange(characters);
-        for (auto &pair:ranges) {
-            auto begin = nfa.GetCharLocation(pair.first);
-            auto end = nfa.GetCharLocation(pair.second);
-
-            while (begin <= end) {
-                nfa.exchange_map_[nfa.begin_state_][begin].insert(
-                        nfa.accept_state_);
-                begin++;
-            }
-        }
+        nfa.accept_state_ = nfa.begin_state_;
+        nfa.range_states_.insert({nfa.begin_state_, RangeNfa{characters}});
     } else {  // special pattern characters
         nfa.accept_state_ = nfa.begin_state_;
         nfa.special_pattern_states_.insert(
@@ -977,6 +945,58 @@ StrConstIt SpecialPatternNfa::NextMatch(
             if (*begin == characters_[1]) {
                 return begin + 1;
             }
+        }
+    }
+
+    return begin;
+}
+
+RangeNfa::RangeNfa(const std::string &regex) {
+    auto begin = regex.cbegin() + 1, end = regex.cend() - 1;
+    while (begin != end) {
+        if (*begin == '\\') {  // skip special patterns
+            auto tmp_it = SkipEscapeCharacters(begin, end);
+            special_patterns_.push_back(
+                    SpecialPatternNfa{string{begin, tmp_it}});
+            begin = tmp_it;
+        } else if (*begin == '.') {
+            special_patterns_.push_back(
+                    SpecialPatternNfa{string{begin, begin + 1}});
+            begin++;
+        } else {
+            if (begin + 1 < end && *(begin + 1) == '-') {  // range
+                if (begin + 2 < end) {
+                    ranges_.insert({*begin, *(begin + 2)});
+                    begin += 3;
+                }
+            } else {  // single character
+                ranges_.insert({*begin, *(begin + 1)});
+                begin++;
+            }
+        }
+    }
+}
+
+StrConstIt SkipEscapeCharacters(StrConstIt begin, StrConstIt end) {
+    // TODO(dxy): deal with escape characters more than one character
+    if (begin != end && *begin == '\\') {
+        return begin + 2;
+    }
+}
+
+StrConstIt RangeNfa::NextMatch(const State &state, StrConstIt str_end) {
+    auto begin = state.first.second;
+
+    for (auto &range:ranges_) {
+        if (*begin >= range.first && *begin <= range.second) {
+            return begin + 1;
+        }
+    }
+
+    for (auto special_pattern:special_patterns_) {
+        begin = special_pattern.NextMatch(state, str_end);
+        if (begin != state.first.second) {
+            return begin;
         }
     }
 
