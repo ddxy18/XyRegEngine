@@ -8,7 +8,6 @@
 #include <map>
 #include <memory>
 #include <set>
-#include <stack>
 #include <string>
 #include <vector>
 
@@ -62,8 +61,6 @@ namespace XyRegEngine {
         friend class AssertionNfa;
 
     public:
-        Nfa() = default;
-
         /**
          * Build a NFA for 'regex'. Notice that if 'regex' is invalid, it
          * creates an empty NFA.
@@ -102,8 +99,7 @@ namespace XyRegEngine {
 
         static const int kEmptyEdge = 0;
 
-        explicit Nfa(std::vector<unsigned int> char_ranges) :
-                char_ranges_(std::move(char_ranges)) {}
+        Nfa() = default;
 
         /**
          * Build a NFA according to an AST. If ast_head is an invalid AST or
@@ -122,6 +118,17 @@ namespace XyRegEngine {
          * @return
          */
         Nfa &operator+=(Nfa &nfa);
+
+        /**
+         * It tries to move to the next state until to the end of the string or
+         * no next states can be found.
+         *
+         * @param begin
+         * @param end
+         * @return all possible routines
+         */
+        std::vector<ReachableStatesMap> StateRoute(
+                StrConstIt begin, StrConstIt end);
 
         /**
          * Get all reachable states starting from cur_state. When cur_state
@@ -236,11 +243,14 @@ namespace XyRegEngine {
         int accept_state_{-1};
     };
 
+    /**
+     * ^ $ \\b \\B (?=sub-pattern) (?!sub-pattern)
+     */
     class AssertionNfa {
     public:
         AssertionNfa(const AssertionNfa &assertion_nfa) = default;
 
-        explicit AssertionNfa(std::string assertion);
+        explicit AssertionNfa(const std::string &assertion);
 
         /**
          * @param str_begin location of ^ in regex in a match
@@ -262,6 +272,9 @@ namespace XyRegEngine {
         Nfa nfa_;
     };
 
+    /**
+     * It stores a NFA for the sub-pattern in the group.
+     */
     class GroupNfa : public Nfa {
     public:
         GroupNfa(const GroupNfa &group_nfa) = default;
@@ -275,9 +288,12 @@ namespace XyRegEngine {
          * @param str_end
          * @return possible end iterators after dealing with the group
          */
-        std::set<StrConstIt> NextGroup(StrConstIt begin, StrConstIt str_end);
+        std::set<StrConstIt> NextMatch(StrConstIt begin, StrConstIt str_end);
     };
 
+    /**
+     * Escape characters, special meaning escape characters and back-reference.
+     */
     class SpecialPatternNfa {
     public:
         explicit SpecialPatternNfa(std::string characters) :
@@ -297,6 +313,9 @@ namespace XyRegEngine {
         std::string characters_;
     };
 
+    /**
+     * [...]. It can contain single characters, ranges and special patterns.
+     */
     class RangeNfa {
     public:
         explicit RangeNfa(const std::string &regex);
@@ -315,13 +334,14 @@ namespace XyRegEngine {
     };
 
     /**
-     * Provide a function to create a NFA for every type in the RegexPart. It's
-     * usually used to create NFAs for split parts.
+     * Provide a function to create a sub-NFA for common operators in the
+     * RegexPart. It's usually used to create NFAs for split parts.
      */
     class NfaFactory {
     public:
         static Nfa MakeCharacterNfa(
-                std::string characters, std::vector<unsigned int> char_ranges);
+                const std::string &characters,
+                const std::vector<unsigned int> &char_ranges);
 
         static Nfa MakeAlternativeNfa(Nfa left_nfa, Nfa right_nfa);
 
@@ -329,7 +349,7 @@ namespace XyRegEngine {
 
         static Nfa MakeQuantifierNfa(const std::string &quantifier,
                                      AstNodePtr &left,
-                                     std::vector<unsigned int> char_ranges);
+                                     const std::vector<unsigned int> &char_ranges);
 
     private:
         static std::pair<int, int> ParseQuantifier(
@@ -369,4 +389,4 @@ namespace XyRegEngine {
     };
 }
 
-#endif //XYREGENGINE_NFA_H
+#endif // XYREGENGINE_NFA_H

@@ -6,10 +6,7 @@
 
 #include <cctype>
 #include <climits>
-#include <memory>
-#include <sstream>
 #include <stack>
-#include <vector>
 
 #include "lex.h"
 
@@ -63,6 +60,25 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
         return "";
     }
 
+    vector<ReachableStatesMap> state_vec = StateRoute(begin, end);
+    auto it = state_vec.cbegin();
+    auto str_begin = begin;
+
+    // find the longest match
+    while (it != state_vec.cend()) {
+        for (const auto &cur_state:*it) {
+            if (cur_state.first.first == accept_state_ &&
+                cur_state.first.second > begin) {
+                begin = cur_state.first.second;
+            }
+        }
+        it++;
+    }
+
+    return string(str_begin, begin);
+}
+
+vector<ReachableStatesMap> Nfa::StateRoute(StrConstIt begin, StrConstIt end) {
     vector<ReachableStatesMap> state_vec;
     ReachableStatesMap cur_states;
 
@@ -84,20 +100,7 @@ string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
     // remove the last empty vector
     state_vec.pop_back();
 
-    auto it = state_vec.cbegin();
-    auto str_begin = begin;
-    // find the longest match
-    while (it != state_vec.cend()) {
-        for (const auto &cur_state:*it) {
-            if (cur_state.first.first == accept_state_ &&
-                cur_state.first.second > begin) {
-                begin = cur_state.first.second;
-            }
-        }
-        it++;
-    }
-
-    return string(str_begin, begin);
+    return state_vec;
 }
 
 ReachableStatesMap Nfa::NextState(const State &cur_state,
@@ -116,7 +119,7 @@ ReachableStatesMap Nfa::NextState(const State &cur_state,
             break;
         case StateType::kGroup:
             for (auto end_it:
-                    group_states_.find(cur_state.first.first)->second.NextGroup(
+                    group_states_.find(cur_state.first.first)->second.NextMatch(
                             begin, str_end)) {
                 auto sub_matches = cur_state.second;
                 sub_matches.emplace_back(begin, end_it);
@@ -220,37 +223,8 @@ vector<string> GetDelim(const string &regex) {
     string token;
 
     while (!(token = NextToken(begin, end)).empty()) {
-        switch (GetRegexType(token)) {
-            case RegexPart::kChar:
-                delim.push_back(token);
-                break;
-            case RegexPart::kAssertion:
-                if (token[0] == '(') {
-                    // get regex in assertion
-                    token.erase(0, 3);
-                    token.erase(token.cend() - 1);
-
-                    for (const auto &s:GetDelim(token)) {
-                        delim.push_back(s);
-                    }
-                }
-                break;
-            case RegexPart::kGroup:
-                // get regex in group
-                token.erase(0, 1);  // erase '('
-                if (token[1] == '?') {
-                    token.erase(0, 2);  // erase '?:'
-                }
-                token.erase(token.cend() - 1);  // erase ')'
-
-                GetDelim(token);
-                for (const auto &s:GetDelim(token)) {
-                    delim.push_back(s);
-                }
-
-                break;
-            default:
-                break;
+        if (GetRegexType(token) == RegexPart::kChar) {
+            delim.push_back(token);
         }
     }
 
@@ -258,6 +232,9 @@ vector<string> GetDelim(const string &regex) {
 }
 
 Nfa &Nfa::operator+=(Nfa &nfa) {
+    if (char_ranges_.empty()) {
+        char_ranges_.assign(nfa.char_ranges_.cbegin(), nfa.char_ranges_.cend());
+    }
     for (auto &pair:nfa.exchange_map_) {
         exchange_map_[pair.first] = std::move(pair.second);
     }
@@ -295,11 +272,9 @@ void Nfa::CharRangesInit(const vector<string> &delim, Encoding encoding) {
         }
     } else {
         for (auto &s:delim) {
-            if (s.size() == 1) {
-                if (s != ".") {  // single character
-                    // see single character as a range [s[0], s[0] + 1)
-                    AddCharRange(char_ranges, s[0]);
-                }
+            if (s.size() == 1 && s != ".") {  // single character
+                // see single character as a range [s[0], s[0] + 1)
+                AddCharRange(char_ranges, s[0]);
             }
         }
     }
@@ -333,13 +308,13 @@ Nfa::Nfa(const string &regex) {
     CharRangesInit(delim, Encoding::kAscii);
 
     auto ast_head = ParseRegex(regex);
-    *this = Nfa(ast_head, char_ranges_);
+    *this = Nfa{ast_head, char_ranges_};
 
     // add a new state as the accept state to prevent that accept state is a
     // functional state
     NewState();
-    exchange_map_[accept_state_][kEmptyEdge].insert(Nfa::i_);
-    accept_state_ = Nfa::i_;
+    exchange_map_[accept_state_][kEmptyEdge].insert(i_);
+    accept_state_ = i_;
 }
 
 AstNodePtr Nfa::ParseRegex(const string &regex) {
@@ -384,13 +359,13 @@ AstNodePtr Nfa::ParseRegex(const string &regex) {
 
                 // build AST for the sub-pattern in the group
                 if (lex[1] == '?') {  // passive group
+                    // deal with it as a common regex
                     son = ParseRegex(string{lex.cbegin() + 3, lex.cend() - 1});
                     rpn_stack.push(std::move(son));
                 } else {  // group
-                    AstNodePtr group_node = make_unique<AstNode>(
-                            RegexPart::kGroup, string{
-                                    lex.cbegin() + 1, lex.cend() - 1});
-                    rpn_stack.push(std::move(group_node));
+                    rpn_stack.push(make_unique<AstNode>(
+                            RegexPart::kGroup,
+                            string{lex.cbegin() + 1, lex.cend() - 1}));
                 }
                 or_flag = false;
                 break;
@@ -400,22 +375,8 @@ AstNodePtr Nfa::ParseRegex(const string &regex) {
                         return nullptr;
                     }
                 }
-
-                if (lex[0] != '(') {
-                    rpn_stack.push(make_unique<AstNode>(
-                            RegexPart::kAssertion, lex));
-                } else {
-                    // build AST for the nested regex
-                    son = ParseRegex(string(lex.cbegin() + 3, lex.cend() - 1));
-
-                    if (son) {
-                        AstNodePtr assertion_node =
-                                make_unique<AstNode>(RegexPart::kAssertion,
-                                                     lex);
-                        assertion_node->SetLeftSon(std::move(son));
-                        rpn_stack.push(std::move(assertion_node));
-                    }
-                }
+                rpn_stack.push(
+                        make_unique<AstNode>(RegexPart::kAssertion, lex));
                 or_flag = false;
                 break;
             case RegexPart::kAnd:
@@ -539,8 +500,6 @@ bool PushQuantifier(stack<AstNodePtr> &op_stack, stack<AstNodePtr> &rpn_stack,
 }
 
 Nfa::Nfa(AstNodePtr &ast_head, const vector<unsigned int> &char_ranges) {
-    char_ranges_.assign(char_ranges.cbegin(), char_ranges.cend());
-
     if (ast_head) {
         switch (ast_head->regex_type_) {
             case RegexPart::kChar:
@@ -562,16 +521,18 @@ Nfa::Nfa(AstNodePtr &ast_head, const vector<unsigned int> &char_ranges) {
                         ast_head->regex_, ast_head->left_son_, char_ranges);
                 break;
             case RegexPart::kGroup:
+                char_ranges_.assign(char_ranges.cbegin(), char_ranges.cend());
                 NewState();
-                begin_state_ = Nfa::i_;
-                accept_state_ = Nfa::i_;
+                begin_state_ = i_;
+                accept_state_ = i_;
                 group_states_.insert(
                         {begin_state_, GroupNfa{ast_head->regex_}});
                 break;
             case RegexPart::kAssertion:
+                char_ranges_.assign(char_ranges.cbegin(), char_ranges.cend());
                 NewState();
-                begin_state_ = Nfa::i_;
-                accept_state_ = Nfa::i_;
+                begin_state_ = i_;
+                accept_state_ = i_;
                 assertion_states_.insert(
                         {begin_state_, AssertionNfa{ast_head->regex_}});
                 break;
@@ -591,8 +552,9 @@ void Nfa::NewState() {
 }
 
 Nfa NfaFactory::MakeCharacterNfa(
-        std::string characters, vector<unsigned int> char_ranges) {
-    Nfa nfa{std::move(char_ranges)};
+        const string &characters, const vector<unsigned int> &char_ranges) {
+    Nfa nfa;
+    nfa.char_ranges_.assign(char_ranges.cbegin(), char_ranges.cend());
 
     nfa.NewState();
     nfa.begin_state_ = Nfa::i_;
@@ -621,11 +583,10 @@ Nfa NfaFactory::MakeCharacterNfa(
 }
 
 Nfa NfaFactory::MakeAlternativeNfa(Nfa left_nfa, Nfa right_nfa) {
-    Nfa nfa{std::move(left_nfa.char_ranges_)};
+    Nfa nfa;
 
     nfa += left_nfa;
     nfa += right_nfa;
-
     //  Add empty edges from new begin state to 'left_nfa''s and
     //  'right_nfa''s begin state.
     nfa.NewState();
@@ -634,27 +595,23 @@ Nfa NfaFactory::MakeAlternativeNfa(Nfa left_nfa, Nfa right_nfa) {
             left_nfa.begin_state_);
     nfa.exchange_map_[nfa.begin_state_][Nfa::kEmptyEdge].insert(
             right_nfa.begin_state_);
-
     // Add empty edges from 'left_nfa''s and 'right_nfa''s accept states to
     // the new accept state.
     nfa.NewState();
     nfa.exchange_map_[left_nfa.accept_state_][Nfa::kEmptyEdge].insert(Nfa::i_);
     nfa.exchange_map_[right_nfa.accept_state_][Nfa::kEmptyEdge].insert(Nfa::i_);
-
     nfa.accept_state_ = Nfa::i_;
 
     return nfa;
 }
 
 Nfa NfaFactory::MakeAndNfa(Nfa left_nfa, Nfa right_nfa) {
-    Nfa nfa{std::move(left_nfa.char_ranges_)};
+    Nfa nfa;
 
     nfa += left_nfa;
     nfa += right_nfa;
-
     nfa.begin_state_ = left_nfa.begin_state_;
     nfa.accept_state_ = right_nfa.accept_state_;
-
     // Add empty edges from 'left_nfa''s accept state to 'right_nfa''s begin
     // state.
     nfa.exchange_map_[left_nfa.accept_state_][Nfa::kEmptyEdge].insert(
@@ -664,8 +621,10 @@ Nfa NfaFactory::MakeAndNfa(Nfa left_nfa, Nfa right_nfa) {
 }
 
 Nfa NfaFactory::MakeQuantifierNfa(const string &quantifier, AstNodePtr &left,
-                                  vector<unsigned int> char_ranges) {
-    Nfa nfa{std::move(char_ranges)};
+                                  const vector<unsigned int> &char_ranges) {
+    Nfa nfa;
+    nfa.char_ranges_.assign(char_ranges.cbegin(), char_ranges.cend());
+
     auto repeat_range = ParseQuantifier(quantifier);
 
     nfa.NewState();
@@ -710,7 +669,7 @@ Nfa NfaFactory::MakeQuantifierNfa(const string &quantifier, AstNodePtr &left,
     return nfa;
 }
 
-pair<int, int> NfaFactory::ParseQuantifier(const std::string &quantifier) {
+pair<int, int> NfaFactory::ParseQuantifier(const string &quantifier) {
     pair<int, int> repeat_range;
 
     // initialize 'repeat_range'
@@ -752,7 +711,7 @@ pair<int, int> NfaFactory::ParseQuantifier(const std::string &quantifier) {
     return repeat_range;
 }
 
-AssertionNfa::AssertionNfa(std::string assertion) {
+AssertionNfa::AssertionNfa(const string &assertion) {
     if (assertion[0] != '(') {
         if (assertion == "^") {
             type_ = AssertionType::kLineBegin;
@@ -774,8 +733,8 @@ AssertionNfa::AssertionNfa(std::string assertion) {
     }
 }
 
-bool AssertionNfa::IsSuccess(StrConstIt str_begin, StrConstIt str_end,
-                             StrConstIt begin) {
+bool AssertionNfa::IsSuccess(
+        StrConstIt str_begin, StrConstIt str_end, StrConstIt begin) {
     switch (type_) {
         case AssertionType::kLineBegin:
             if (begin == str_begin || IsLineTerminator(begin - 1)) {
@@ -832,7 +791,7 @@ bool IsWord(StrConstIt it) {
     return *it == '_' || isalnum(*it);
 }
 
-set<StrConstIt> GroupNfa::NextGroup(StrConstIt begin, StrConstIt str_end) {
+set<StrConstIt> GroupNfa::NextMatch(StrConstIt begin, StrConstIt str_end) {
     set<StrConstIt> end_its;
 
     // We don't use begin == str_end since an empty string may be captured.
@@ -840,28 +799,9 @@ set<StrConstIt> GroupNfa::NextGroup(StrConstIt begin, StrConstIt str_end) {
         return end_its;
     }
 
-    vector<ReachableStatesMap> state_vec;
-    ReachableStatesMap cur_states;
-
-    // Use states that can be accessed through empty edges from begin_state_
-    // and begin_state_ itself as an initial driver.
-    State begin_state = {{begin_state_, begin}, vector<SubMatch>()};
-    cur_states.merge(NextState(begin_state));
-    cur_states.insert(begin_state);
-    state_vec.push_back(cur_states);
-
-    // find all reachable states from current states
-    while (!state_vec[state_vec.size() - 1].empty()) {
-        cur_states.clear();
-        for (const auto &last_state:state_vec[state_vec.size() - 1]) {
-            cur_states.merge(NextState(last_state, begin, str_end));
-        }
-        state_vec.push_back(cur_states);
-    }
-    // remove the last empty vector
-    state_vec.pop_back();
-
+    vector<ReachableStatesMap> state_vec = StateRoute(begin, str_end);
     auto it = state_vec.cbegin();
+
     // find the longest match
     while (it != state_vec.cend()) {
         for (const auto &cur_state:*it) {
@@ -871,7 +811,6 @@ set<StrConstIt> GroupNfa::NextGroup(StrConstIt begin, StrConstIt str_end) {
         }
         it++;
     }
-
 
     return end_its;
 }
@@ -951,8 +890,10 @@ StrConstIt SpecialPatternNfa::NextMatch(
     return begin;
 }
 
-RangeNfa::RangeNfa(const std::string &regex) {
+RangeNfa::RangeNfa(const string &regex) {
     auto begin = regex.cbegin() + 1, end = regex.cend() - 1;
+
+    // TODO(dxy): deal with [^...]
     while (begin != end) {
         if (*begin == '\\') {  // skip special patterns
             auto tmp_it = SkipEscapeCharacters(begin, end);

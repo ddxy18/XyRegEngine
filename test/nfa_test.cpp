@@ -102,12 +102,12 @@ TEST(Nfa, Assertion_NegativeLookahead) {
 }
 
 TEST(Nfa, ContinuousAssertion) {
-    Nfa nfa{"(?!abd)(?=abc)abc"};
-    string s = "abcabc";
+    Nfa nfa{"(?!ad)(?=ab)ab"};
+    string s = "abab";
     auto begin = s.cbegin(), end = s.cend();
 
-    EXPECT_EQ(nfa.NextMatch(begin, end), "abc");
-    EXPECT_EQ(nfa.NextMatch(begin, end), "abc");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "ab");
+    EXPECT_EQ(nfa.NextMatch(begin, end), "ab");
     EXPECT_TRUE(nfa.NextMatch(begin, end).empty());
 }
 
