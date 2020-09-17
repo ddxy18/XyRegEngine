@@ -34,6 +34,7 @@ namespace XyRegEngine {
     std::map<std::pair<int, StrConstIt>, std::vector<SubMatch>>;
     using State =
     std::pair<std::pair<int, StrConstIt>, std::vector<SubMatch>>;
+    using StatePtr = std::unique_ptr<State>;
 
     enum class Encoding {
         kAscii, kUtf8
@@ -90,7 +91,7 @@ namespace XyRegEngine {
          * @param end Last iterator of the given string.
          * @return A matched substring. If no match exists, it returns "".
          */
-        std::string NextMatch(StrConstIt &begin, StrConstIt end);
+        StatePtr NextMatch(StrConstIt begin, StrConstIt end);
 
     protected:
         enum class StateType {

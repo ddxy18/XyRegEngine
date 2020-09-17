@@ -55,27 +55,27 @@ bool IsWord(StrConstIt it);
 
 StrConstIt SkipEscapeCharacters(StrConstIt begin, StrConstIt end);
 
-string Nfa::NextMatch(StrConstIt &begin, StrConstIt end) {
-    if (begin == end) {
-        return "";
-    }
-
+StatePtr Nfa::NextMatch(StrConstIt begin, StrConstIt end) {
     vector<ReachableStatesMap> state_vec = StateRoute(begin, end);
     auto it = state_vec.cbegin();
-    auto str_begin = begin;
+    State state = *state_vec[0].find({begin_state_, begin});
 
     // find the longest match
     while (it != state_vec.cend()) {
         for (const auto &cur_state:*it) {
             if (cur_state.first.first == accept_state_ &&
-                cur_state.first.second > begin) {
-                begin = cur_state.first.second;
+                cur_state.first.second > state.first.second) {
+                state = cur_state;
             }
         }
         it++;
     }
 
-    return string(str_begin, begin);
+    if (state.first.first == begin_state_) {
+        return nullptr;
+    } else {
+        return make_unique<State>(state);
+    }
 }
 
 vector<ReachableStatesMap> Nfa::StateRoute(StrConstIt begin, StrConstIt end) {
@@ -85,7 +85,9 @@ vector<ReachableStatesMap> Nfa::StateRoute(StrConstIt begin, StrConstIt end) {
     // Use states that can be accessed through empty edges from begin_state_
     // and begin_state_ itself as an initial driver.
     State begin_state = {{begin_state_, begin}, vector<SubMatch>()};
-    cur_states.merge(NextState(begin_state));
+    if (GetStateType(begin_state_) == StateType::kCommon) {
+        cur_states.merge(NextState(begin_state));
+    }
     cur_states.insert(begin_state);
     state_vec.push_back(cur_states);
 
@@ -773,9 +775,9 @@ bool AssertionNfa::IsSuccess(
             }
             break;
         case AssertionType::kPositiveLookahead:
-            return !nfa_.NextMatch(begin, str_end).empty();
+            return nfa_.NextMatch(begin, str_end) != nullptr;
         case AssertionType::kNegativeLookahead:
-            return nfa_.NextMatch(begin, str_end).empty();
+            return nfa_.NextMatch(begin, str_end) == nullptr;
     }
     return false;
 }

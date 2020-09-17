@@ -7,7 +7,7 @@ include_directories(
         ../GoogleTest/googletest/include
         ../GoogleTest/googlemock/include)
 
-add_executable(XyRegEngineTest lex_test.cpp nfa_test.cpp)
+add_executable(XyRegEngineTest lex_test.cpp nfa_test.cpp regex_test.cpp)
 
 add_subdirectory(../GoogleTest ../GoogleTest)
 add_subdirectory(../src ../src)

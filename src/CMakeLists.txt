@@ -3,4 +3,4 @@ project(XyRegEngine)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_library(XyRegEngineLib STATIC lex.cpp nfa.cpp)
+add_library(XyRegEngineLib STATIC lex.cpp nfa.cpp xy_regex.cpp)
