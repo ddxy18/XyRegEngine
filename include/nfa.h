@@ -332,6 +332,7 @@ namespace XyRegEngine {
     private:
         std::map<int, int> ranges_;
         std::vector<SpecialPatternNfa> special_patterns_;
+        bool except_;  // true for [^...] and false for [...]
     };
 
     /**

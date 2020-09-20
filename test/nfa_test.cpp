@@ -15,9 +15,11 @@ TEST(Nfa, Alternative) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "a");
+
     begin = match_end;
     match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "b");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -29,6 +31,7 @@ TEST(Nfa, And) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "ab");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -40,12 +43,15 @@ TEST(Nfa, Range) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "a");
+
     begin = match_end;
     match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "b");
+
     begin = match_end;
     match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "c");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -57,6 +63,7 @@ TEST(Nfa, Quantifier_0OrMore) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "abc");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -68,6 +75,7 @@ TEST(Nfa, Quantifier_1OrMore) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "abc");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -79,6 +87,7 @@ TEST(Nfa, Quantifier_Exact) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "ab");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -90,6 +99,7 @@ TEST(Nfa, Quantifier_nOrMore) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "abc");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -101,6 +111,7 @@ TEST(Nfa, Quantifier_mTon) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "abca");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -112,6 +123,7 @@ TEST(Nfa, Assertion_PositiveLookahead) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "ab");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -123,6 +135,7 @@ TEST(Nfa, Assertion_NegativeLookahead) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "abc");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -134,9 +147,11 @@ TEST(Nfa, ContinuousAssertion) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "ab");
+
     begin = match_end;
     match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "ab");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -148,6 +163,7 @@ TEST(Nfa, Assertion_LineBegin) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaa");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -159,6 +175,7 @@ TEST(Nfa, Assertion_LineEnd) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaa");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -170,6 +187,7 @@ TEST(Nfa, Assertion_WordBoundary) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaa");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -181,6 +199,7 @@ TEST(Nfa, Assertion_NotWordBoundary) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaa");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -192,6 +211,7 @@ TEST(Nfa, Group) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaab");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -203,6 +223,7 @@ TEST(Nfa, PassiveGroup) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaab");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -214,6 +235,7 @@ TEST(Nfa, NestedGroup) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaabc");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -225,6 +247,7 @@ TEST(Nfa, BackReference) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aabcaa");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -236,6 +259,7 @@ TEST(Nfa, SeveralBackReference) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), s);
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -247,6 +271,7 @@ TEST(Nfa, NotNewLine) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "aaa");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -258,6 +283,7 @@ TEST(Nfa, EscapeCharacter) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "(a)");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
@@ -269,9 +295,23 @@ TEST(Nfa, SpecialPatternInRange) {
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "a");
+
     begin = match_end;
     match_end = nfa.NextMatch(begin, end)->first.second;
     EXPECT_EQ(string(begin, match_end), "1");
+
+    begin = match_end;
+    EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
+}
+
+TEST(Nfa, ExceptRange) {
+    Nfa nfa{"[^abc\\d]"};
+    string s = "d";
+    auto begin = s.cbegin(), end = s.cend();
+
+    auto match_end = nfa.NextMatch(begin, end)->first.second;
+    EXPECT_EQ(string(begin, match_end), "d");
+
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }

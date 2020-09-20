@@ -53,8 +53,6 @@ bool IsLineTerminator(StrConstIt it);
 
 bool IsWord(StrConstIt it);
 
-StrConstIt SkipEscapeCharacters(StrConstIt begin, StrConstIt end);
-
 StatePtr Nfa::NextMatch(StrConstIt begin, StrConstIt end) {
     vector<ReachableStatesMap> state_vec = StateRoute(begin, end);
     auto it = state_vec.cbegin();
@@ -888,6 +886,7 @@ StrConstIt SpecialPatternNfa::NextMatch(
             }
         }
     }
+    // TODO(dxy): \\c \\x \\u
 
     return begin;
 }
@@ -895,7 +894,13 @@ StrConstIt SpecialPatternNfa::NextMatch(
 RangeNfa::RangeNfa(const string &regex) {
     auto begin = regex.cbegin() + 1, end = regex.cend() - 1;
 
-    // TODO(dxy): deal with [^...]
+    if (*begin == '^') {  // [^...]
+        except_ = true;
+        begin++;
+    } else {
+        except_ = false;
+    }
+
     while (begin != end) {
         if (*begin == '\\') {  // skip special patterns
             auto tmp_it = SkipEscapeCharacters(begin, end);
@@ -920,28 +925,42 @@ RangeNfa::RangeNfa(const string &regex) {
     }
 }
 
-StrConstIt SkipEscapeCharacters(StrConstIt begin, StrConstIt end) {
-    // TODO(dxy): deal with escape characters more than one character
-    if (begin != end && *begin == '\\') {
-        return begin + 2;
-    }
-}
-
 StrConstIt RangeNfa::NextMatch(const State &state, StrConstIt str_end) {
     auto begin = state.first.second;
 
-    for (auto &range:ranges_) {
-        if (*begin >= range.first && *begin <= range.second) {
-            return begin + 1;
-        }
+    if (begin == str_end) {  // no character to match
+        return begin;
     }
 
-    for (auto special_pattern:special_patterns_) {
-        begin = special_pattern.NextMatch(state, str_end);
-        if (begin != state.first.second) {
-            return begin;
+    if (except_) {
+        for (auto &range:ranges_) {
+            if (*begin >= range.first && *begin <= range.second) {
+                return begin;
+            }
         }
-    }
 
-    return begin;
+        for (auto special_pattern:special_patterns_) {
+            begin = special_pattern.NextMatch(state, str_end);
+            if (begin != state.first.second) {
+                return state.first.second;
+            }
+        }
+
+        return begin + 1;
+    } else {
+        for (auto &range:ranges_) {
+            if (*begin >= range.first && *begin <= range.second) {
+                return begin + 1;
+            }
+        }
+
+        for (auto special_pattern:special_patterns_) {
+            begin = special_pattern.NextMatch(state, str_end);
+            if (begin != state.first.second) {
+                return begin;
+            }
+        }
+
+        return begin;
+    }
 }
