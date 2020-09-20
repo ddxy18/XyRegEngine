@@ -10,15 +10,6 @@
 using namespace XyRegEngine;
 using namespace std;
 
-/**
- * Move 'begin' to the next character after the escape character.
- *
- * @param begin
- * @param end
- * @return Escape character. If no valid escape character exists, it returns "".
- */
-string SkipEscapeCharacter(StrConstIt &begin, StrConstIt &end);
-
 string XyRegEngine::NextToken(StrConstIt &begin, StrConstIt &end) {
     if (begin != end) {
         auto cur_begin = begin;
@@ -48,19 +39,17 @@ string XyRegEngine::NextToken(StrConstIt &begin, StrConstIt &end) {
                 return string(cur_begin, begin);
 
             case '\\':  // escape characters
-                if (++begin != end) {
-                    return string(cur_begin, ++begin);
-                }
-                return "";  // lack of escape character
+                begin = SkipEscapeCharacters(begin, end);
+                return string(cur_begin, begin);
 
                 // See '[...]' '{...}' '<...>' as a lex. Although it cannot
                 // be nested, nested error is detected by caller and now we
                 // only find the first matched right bracket.
             case '[':
             case '{':
-            case '<':
                 while (++begin != end) {
-                    SkipEscapeCharacter(begin, end);  // skip '\]' '\}' '\>'
+                    // skip '\]' '\}'
+                    begin = SkipEscapeCharacters(begin, end);
                     if (begin != end) {
                         auto it = pair_characters.find(*begin);
                         if (it != pair_characters.end() &&
@@ -75,7 +64,7 @@ string XyRegEngine::NextToken(StrConstIt &begin, StrConstIt &end) {
                 // can be nested.
             case '(':
                 while (parentheses != 0 && ++begin != end) {
-                    SkipEscapeCharacter(begin, end);
+                    begin = SkipEscapeCharacters(begin, end);
                     if (begin != end) {
                         switch (*begin) {
                             case '(':
@@ -95,7 +84,6 @@ string XyRegEngine::NextToken(StrConstIt &begin, StrConstIt &end) {
                 // lack of their left pairs
             case ']':
             case '}':
-            case '>':
             case ')':
                 return "";
             default:
@@ -105,13 +93,33 @@ string XyRegEngine::NextToken(StrConstIt &begin, StrConstIt &end) {
     return "";  // All characters in 'regex' have been scanned.
 }
 
-string SkipEscapeCharacter(StrConstIt &begin, StrConstIt &end) {
-    if (begin != end && *begin == '\\') {
-        auto cur_begin = begin;
-        if (++begin != end) {
-            return string(cur_begin, ++begin);
+StrConstIt XyRegEngine::SkipEscapeCharacters(StrConstIt begin, StrConstIt end) {
+    auto cur_it = begin;
+
+    if (cur_it != end && *cur_it == '\\') {
+        cur_it++;
+
+        // back reference
+        while (cur_it != end && isdigit(*cur_it)) {
+            cur_it++;
         }
-        return "";  // no characters behind '\\'
+        if (cur_it != begin + 1) {
+            return cur_it;
+        }
+
+        switch (*cur_it) {
+            case 'u':
+                return cur_it + 5;
+            case 'c':
+                return cur_it + 2;
+            case 'x':
+                return cur_it + 3;
+            case '\0':
+                return begin;
+            default:
+                return cur_it + 1;
+        }
     }
-    return "";
+
+    return begin;  // not escape characters
 }

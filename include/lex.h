@@ -22,6 +22,14 @@ namespace XyRegEngine {
      * of the regex, it returns "".
     */
     std::string NextToken(StrConstIt &begin, StrConstIt &end);
+
+    /**
+     * @param begin
+     * @param end
+     * @return Return the iterator of the first character after the escape
+     * characters. If no valid escape characters are found, return begin.
+     */
+    StrConstIt SkipEscapeCharacters(StrConstIt begin, StrConstIt end);
 }
 
-#endif //XYREGENGINE_LEX_H
+#endif // XYREGENGINE_LEX_H
