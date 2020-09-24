@@ -24,7 +24,7 @@ int Nfa::i_ = 0;
  */
 RegexPart GetRegexType(const string &regex);
 
-vector<string> GetDelim(const string &regex);
+set<string> GetDelim(const string &regex);
 
 /**
  * Add a character range [begin, end) to char_ranges.
@@ -217,14 +217,24 @@ Nfa::StateType Nfa::GetStateType(int state) {
     return StateType::kCommon;
 }
 
-vector<string> GetDelim(const string &regex) {
+set<string> GetDelim(const string &regex) {
     auto begin = regex.cbegin(), end = regex.cend();
-    vector<string> delim;
+    set<string> delim;
     string token;
 
     while (!(token = NextToken(begin, end)).empty()) {
-        if (GetRegexType(token) == RegexPart::kChar) {
-            delim.push_back(token);
+        switch (GetRegexType(token)) {
+            case RegexPart::kChar:
+                delim.insert(token);
+                break;
+            case RegexPart::kGroup:
+                if (regex[1] == '?') {  // passive group
+                    delim.merge(GetDelim(
+                            string{regex.cbegin() + 3, regex.cend() - 1}));
+                }
+                break;
+            default:
+                break;
         }
     }
 
@@ -246,7 +256,7 @@ Nfa &Nfa::operator+=(Nfa &nfa) {
     return *this;
 }
 
-void Nfa::CharRangesInit(const vector<string> &delim, Encoding encoding) {
+void Nfa::CharRangesInit(const set<string> &delim, Encoding encoding) {
     set<unsigned int> char_ranges;
 
     // determine encode range

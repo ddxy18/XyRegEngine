@@ -239,12 +239,12 @@ TEST(Nfa, Group) {
 }
 
 TEST(Nfa, PassiveGroup) {
-    Nfa nfa{"(?:aa)ab"};
-    string s = "aaabc";
+    Nfa nfa{"(?:abc)a"};
+    string s = "abca";
     auto begin = s.cbegin(), end = s.cend();
 
     auto match_end = nfa.NextMatch(begin, end)->first.second;
-    EXPECT_EQ(string(begin, match_end), "aaab");
+    EXPECT_EQ(string(begin, match_end), "abca");
 
     begin = match_end;
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
