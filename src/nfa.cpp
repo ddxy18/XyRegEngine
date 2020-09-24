@@ -62,7 +62,7 @@ StatePtr Nfa::NextMatch(StrConstIt begin, StrConstIt end) {
     while (it != state_vec.cend()) {
         for (const auto &cur_state:*it) {
             if (cur_state.first.first == accept_state_ &&
-                cur_state.first.second > state.first.second) {
+                cur_state.first.second >= state.first.second) {
                 state = cur_state;
             }
         }
@@ -631,7 +631,8 @@ Nfa NfaFactory::MakeQuantifierNfa(const string &quantifier, AstNodePtr &left,
     nfa.begin_state_ = Nfa::i_;
     nfa.accept_state_ = Nfa::i_;
 
-    for (int i = 1; i < repeat_range.first; ++i) {
+    int i = 1;
+    for (; i < repeat_range.first; ++i) {
         Nfa left_nfa{left, nfa.char_ranges_};
         // connect 'left_nfa' to the end of the current nfa
         nfa = MakeAndNfa(nfa, left_nfa);
@@ -649,9 +650,9 @@ Nfa NfaFactory::MakeQuantifierNfa(const string &quantifier, AstNodePtr &left,
         nfa.exchange_map_[nfa.accept_state_][Nfa::kEmptyEdge].insert(
                 final_accept_state);
     } else {
-        for (int i = repeat_range.first; i <= repeat_range.second; ++i) {
+        for (; i <= repeat_range.second; ++i) {
             Nfa left_nfa{left, nfa.char_ranges_};
-            // connect 'left_nfa' to the end of the current nfa
+            // connect left_nfa to the end of the current nfa
             nfa = MakeAndNfa(nfa, left_nfa);
             nfa.exchange_map_[left_nfa.accept_state_][Nfa::kEmptyEdge].insert(
                     final_accept_state);

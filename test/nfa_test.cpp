@@ -56,6 +56,27 @@ TEST(Nfa, Range) {
     EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
 }
 
+TEST(Nfa, Quantifier_0Or1) {
+    Nfa nfa{"[a-c]?"};
+    string s = "abc";
+    auto begin = s.cbegin(), end = s.cend();
+
+    auto match_end = nfa.NextMatch(begin, end)->first.second;
+    EXPECT_EQ(string(begin, match_end), "a");
+
+    begin = match_end;
+    match_end = nfa.NextMatch(begin, end)->first.second;
+    EXPECT_EQ(string(begin, match_end), "b");
+
+    begin = match_end;
+    match_end = nfa.NextMatch(begin, end)->first.second;
+    EXPECT_EQ(string(begin, match_end), "c");
+
+    begin = match_end;
+    match_end = nfa.NextMatch(begin, end)->first.second;
+    EXPECT_EQ(string(begin, match_end), "");
+}
+
 TEST(Nfa, Quantifier_0OrMore) {
     Nfa nfa{"[a-c]*"};
     string s = "abc";
@@ -65,7 +86,8 @@ TEST(Nfa, Quantifier_0OrMore) {
     EXPECT_EQ(string(begin, match_end), "abc");
 
     begin = match_end;
-    EXPECT_EQ(nfa.NextMatch(begin, end), nullptr);
+    match_end = nfa.NextMatch(begin, end)->first.second;
+    EXPECT_EQ(string(begin, match_end), "");
 }
 
 TEST(Nfa, Quantifier_1OrMore) {
