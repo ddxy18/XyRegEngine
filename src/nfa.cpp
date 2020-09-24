@@ -230,7 +230,7 @@ set<string> GetDelim(const string &regex) {
             case RegexPart::kGroup:
                 if (regex[1] == '?') {  // passive group
                     delim.merge(GetDelim(
-                            string{regex.cbegin() + 3, regex.cend() - 1}));
+                            string{token.cbegin() + 3, token.cend() - 1}));
                 }
                 break;
             default:
